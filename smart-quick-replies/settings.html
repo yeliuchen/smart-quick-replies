@@ -1,0 +1,165 @@
+<div class="sqr-settings" id="sqr-settings-root">
+  <div class="sqr-settings-tabs" role="tablist" aria-label="智能快捷回复建议设置">
+    <button class="sqr-tab-button active" type="button" data-sqr-tab="sqr-general">通用</button>
+    <button class="sqr-tab-button" type="button" data-sqr-tab="sqr-api">API</button>
+    <button class="sqr-tab-button" type="button" data-sqr-tab="sqr-prompt">提示词</button>
+    <button class="sqr-tab-button" type="button" data-sqr-tab="sqr-context">上下文</button>
+    <button class="sqr-tab-button" type="button" data-sqr-tab="sqr-appearance">外观</button>
+  </div>
+
+  <section class="sqr-settings-section" id="sqr-general" data-sqr-section>
+    <h3>通用设置</h3>
+    <div class="sqr-field-grid">
+      <label class="sqr-field">
+        <span>触发模式</span>
+        <select id="sqr-trigger-mode" data-sqr-setting="triggerMode">
+          <option value="auto">角色回复完成后自动弹出</option>
+          <option value="manual">仅手动触发</option>
+          <option value="off">关闭建议</option>
+        </select>
+      </label>
+      <label class="sqr-check-field">
+        <input id="sqr-interrupted-auto" type="checkbox" data-sqr-setting="interruptedAutoGenerate">
+        <span>中断主 AI 回复后自动生成</span>
+      </label>
+      <label class="sqr-check-field">
+        <input id="sqr-dismiss-after-send" type="checkbox" data-sqr-setting="dismissAfterSend">
+        <span>用户发送后隐藏面板</span>
+      </label>
+      <label class="sqr-check-field">
+        <input id="sqr-esc-dismiss" type="checkbox" data-sqr-setting="escDismiss">
+        <span>允许按 Esc 关闭面板</span>
+      </label>
+      <label class="sqr-check-field">
+        <input id="sqr-outside-dismiss" type="checkbox" data-sqr-setting="outsideClickDismiss">
+        <span>点击外部区域关闭面板</span>
+      </label>
+    </div>
+    <div class="sqr-position-row">
+      <span>弹出位置：<output id="sqr-position-display">默认位置</output></span>
+      <button id="sqr-reset-position" class="menu_button" type="button">重置弹出位置</button>
+    </div>
+  </section>
+
+  <section class="sqr-settings-section" id="sqr-api" data-sqr-section hidden>
+    <h3>API 配置</h3>
+    <div class="sqr-field-grid">
+      <label class="sqr-field">
+        <span>API 类型</span>
+        <select id="sqr-api-type" data-sqr-setting="api.type">
+          <option value="openai">OpenAI-compatible</option>
+          <option value="anthropic">Anthropic-compatible</option>
+          <option value="lmstudio">LM Studio</option>
+        </select>
+      </label>
+      <label class="sqr-check-field">
+        <input id="sqr-api-auto-detect" type="checkbox" data-sqr-setting="api.autoDetect">
+        <span>根据 URL 自动检测类型</span>
+      </label>
+      <label class="sqr-field sqr-field-wide">
+        <span>API URL</span>
+        <input id="sqr-api-url" type="url" data-sqr-setting="api.url" placeholder="http://localhost:1234/v1">
+      </label>
+      <label class="sqr-field sqr-field-wide">
+        <span>API Key（可选）</span>
+        <input id="sqr-api-key" type="password" data-sqr-secret="apiKey" autocomplete="off" placeholder="优先从 SillyTavern Secrets 读取">
+      </label>
+      <label class="sqr-field sqr-field-wide">
+        <span>模型名称</span>
+        <input id="sqr-model" type="text" data-sqr-setting="api.model" placeholder="填写模型 ID">
+      </label>
+      <div class="sqr-field sqr-field-wide sqr-model-picker">
+        <label for="sqr-model-search">模型列表搜索</label>
+        <input id="sqr-model-search" type="search" placeholder="筛选已获取的模型">
+        <select id="sqr-model-list" size="4" aria-label="可用模型列表"></select>
+        <button id="sqr-fetch-models" class="menu_button" type="button">获取模型列表</button>
+        <span id="sqr-model-status" class="sqr-status" role="status"></span>
+      </div>
+    </div>
+    <p class="sqr-help">LM Studio 默认可填写 http://localhost:1234/v1，通常不需要 API Key。API Key 仅保存在 SillyTavern Secrets 或明确标注的本地回退位置。</p>
+    <div class="sqr-range-grid">
+      <label class="sqr-range-field">
+        <span>温度 <output data-sqr-output="api.temperature">0.9</output></span>
+        <input id="sqr-temperature" type="range" min="0" max="2" step="0.05" value="0.9" data-sqr-setting="api.temperature">
+      </label>
+      <label class="sqr-range-field">
+        <span>最大 token <output data-sqr-output="api.maxTokens">80</output></span>
+        <input id="sqr-max-tokens" type="range" min="16" max="512" step="1" value="80" data-sqr-setting="api.maxTokens">
+      </label>
+      <label class="sqr-range-field">
+        <span>top_p <output data-sqr-output="api.topP">0.95</output></span>
+        <input id="sqr-top-p" type="range" min="0" max="1" step="0.05" value="0.95" data-sqr-setting="api.topP">
+      </label>
+    </div>
+  </section>
+
+  <section class="sqr-settings-section" id="sqr-prompt" data-sqr-section hidden>
+    <h3>提示词编辑</h3>
+    <label class="sqr-field sqr-field-wide">
+      <span>系统提示词</span>
+      <textarea id="sqr-system-prompt" rows="8" data-sqr-setting="systemPrompt" spellcheck="false"></textarea>
+    </label>
+    <p class="sqr-help">支持 {{char}} 当前角色名、{{user}} 当前用户名、{{history}} 对话历史和 {{char_description}} 角色描述。若使用 {{history}}，历史会直接放入系统提示词，不再重复发送消息数组。</p>
+    <button id="sqr-reset-prompt" class="menu_button" type="button">恢复默认提示词</button>
+  </section>
+
+  <section class="sqr-settings-section" id="sqr-context" data-sqr-section hidden>
+    <h3>上下文与压缩</h3>
+    <div class="sqr-field-grid">
+      <label class="sqr-field">
+        <span>最近历史消息条数</span>
+        <input id="sqr-history-limit" type="number" min="1" max="100" step="1" data-sqr-setting="historyLimit">
+      </label>
+      <label class="sqr-check-field">
+        <input id="sqr-include-description" type="checkbox" data-sqr-setting="includeCharacterDescription">
+        <span>包含角色描述</span>
+      </label>
+      <label class="sqr-check-field">
+        <input id="sqr-compression-enabled" type="checkbox" data-sqr-setting="compression.enabled">
+        <span>启用上下文压缩</span>
+      </label>
+      <label class="sqr-field">
+        <span>压缩策略</span>
+        <select id="sqr-compression-strategy" data-sqr-setting="compression.strategy">
+          <option value="auto-summary">自动摘要</option>
+          <option value="window">滑动窗口截断</option>
+          <option value="none">不压缩</option>
+        </select>
+      </label>
+      <label class="sqr-field">
+        <span>压缩阈值（粗略 token）</span>
+        <input id="sqr-compression-threshold" type="number" min="100" max="100000" step="100" data-sqr-setting="compression.threshold">
+      </label>
+      <label class="sqr-field">
+        <span>摘要后保留最近消息</span>
+        <input id="sqr-preserve-recent" type="number" min="0" max="50" step="1" data-sqr-setting="compression.preserveRecent">
+      </label>
+      <label class="sqr-field sqr-field-wide">
+        <span>摘要模型（可选，留空使用主模型）</span>
+        <input id="sqr-summary-model" type="text" data-sqr-setting="compression.summaryModel">
+      </label>
+      <label class="sqr-field sqr-field-wide">
+        <span>独立摘要 API URL（可选）</span>
+        <input id="sqr-summary-api-url" type="url" data-sqr-setting="compression.summaryApiUrl">
+      </label>
+    </div>
+  </section>
+
+  <section class="sqr-settings-section" id="sqr-appearance" data-sqr-section hidden>
+    <h3>外观微调</h3>
+    <div class="sqr-range-grid">
+      <label class="sqr-range-field">
+        <span>面板透明度 <output data-sqr-output="appearance.opacity">0.94</output></span>
+        <input id="sqr-opacity" type="range" min="0.4" max="1" step="0.01" value="0.94" data-sqr-setting="appearance.opacity">
+      </label>
+      <label class="sqr-field">
+        <span>按钮颜色（可选）</span>
+        <input id="sqr-button-color" type="text" data-sqr-setting="appearance.buttonColor" placeholder="使用主题默认色">
+      </label>
+      <label class="sqr-field">
+        <span>按钮文字颜色（可选）</span>
+        <input id="sqr-button-text-color" type="text" data-sqr-setting="appearance.buttonTextColor" placeholder="使用主题默认色">
+      </label>
+    </div>
+  </section>
+</div>

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   DEFAULT_SETTINGS,
   DEFAULT_SYSTEM_PROMPT,
@@ -40,4 +41,11 @@ test('panel position clamps to the viewport with a margin', () => {
 
 test('default panel position is directly above the input', () => {
   assert.deepEqual(getDefaultPanelPosition({ left: 100, top: 700, width: 600, height: 80 }, { width: 600, height: 120 }, { width: 1000, height: 800 }, 8), { left: 100, top: 580 });
+});
+
+test('settings markup contains all required sections and controls', () => {
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  for (const id of ['sqr-general', 'sqr-api', 'sqr-prompt', 'sqr-context', 'sqr-appearance', 'sqr-trigger-mode', 'sqr-api-type', 'sqr-api-url', 'sqr-api-key', 'sqr-model', 'sqr-fetch-models', 'sqr-system-prompt', 'sqr-reset-prompt', 'sqr-reset-position', 'sqr-history-limit', 'sqr-compression-strategy']) {
+    assert.match(html, new RegExp('id=["\\\']' + id + '["\\\']'));
+  }
 });

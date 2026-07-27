@@ -455,3 +455,84 @@ export async function requestModels(config = {}, dependencies = {}) {
   }
   throw lastError instanceof Error ? lastError : new Error('Model discovery failed');
 }
+
+export function getInputElement(root, settingPath) {
+  if (!root || typeof root.querySelectorAll !== 'function') return null;
+  return [...root.querySelectorAll('[data-sqr-setting]')]
+    .find(element => element.dataset?.sqrSetting === settingPath) ?? null;
+}
+
+const getNestedValue = (source, path) => String(path).split('.').reduce((value, key) => value?.[key], source);
+
+const parseSettingValue = element => {
+  if (element.type === 'checkbox') return Boolean(element.checked);
+  if (element.type === 'number' || element.type === 'range') {
+    const value = Number(element.value);
+    return Number.isFinite(value) ? value : 0;
+  }
+  return element.value;
+};
+
+export function renderSettings(container, settings = {}, handlers = {}) {
+  if (!container || typeof container.querySelectorAll !== 'function') return () => {};
+  const listeners = [];
+  const listen = (element, event, callback) => {
+    if (!element?.addEventListener) return;
+    element.addEventListener(event, callback);
+    listeners.push(() => element.removeEventListener(event, callback));
+  };
+  const save = (path, value) => {
+    if (typeof handlers.save === 'function') handlers.save(path, value);
+  };
+  const updateOutput = path => {
+    const input = getInputElement(container, path);
+    const output = [...container.querySelectorAll('[data-sqr-output]')]
+      .find(element => element.dataset?.sqrOutput === path);
+    if (input && output) output.value = input.value;
+  };
+
+  for (const element of container.querySelectorAll('[data-sqr-setting]')) {
+    const path = element.dataset.sqrSetting;
+    const value = getNestedValue(settings, path);
+    if (element.type === 'checkbox') element.checked = Boolean(value);
+    else if (value !== undefined && value !== null) element.value = String(value);
+    updateOutput(path);
+    const eventName = element.type === 'range' ? 'input' : 'change';
+    listen(element, eventName, () => {
+      const nextValue = parseSettingValue(element);
+      updateOutput(path);
+      save(path, nextValue);
+    });
+  }
+
+  for (const button of container.querySelectorAll('[data-sqr-tab]')) {
+    listen(button, 'click', () => {
+      const targetId = button.dataset.sqrTab;
+      for (const section of container.querySelectorAll('[data-sqr-section]')) section.hidden = section.id !== targetId;
+      for (const tab of container.querySelectorAll('[data-sqr-tab]')) tab.classList.toggle('active', tab === button);
+    });
+  }
+
+  const resetPosition = container.querySelector('#sqr-reset-position');
+  listen(resetPosition, 'click', () => handlers.resetPosition?.());
+  const resetPrompt = container.querySelector('#sqr-reset-prompt');
+  listen(resetPrompt, 'click', () => handlers.resetPrompt?.());
+  const fetchModels = container.querySelector('#sqr-fetch-models');
+  listen(fetchModels, 'click', () => handlers.fetchModels?.());
+
+  const modelSearch = container.querySelector('#sqr-model-search');
+  const modelList = container.querySelector('#sqr-model-list');
+  const filterModels = () => {
+    const query = String(modelSearch?.value ?? '').trim().toLowerCase();
+    for (const option of modelList?.options ?? []) option.hidden = query && !option.textContent.toLowerCase().includes(query);
+  };
+  listen(modelSearch, 'input', filterModels);
+  listen(modelList, 'change', () => {
+    const model = modelList.selectedOptions?.[0]?.value ?? '';
+    const modelInput = container.querySelector('#sqr-model');
+    if (modelInput) modelInput.value = model;
+    if (model) save('api.model', model);
+  });
+
+  return () => listeners.splice(0).forEach(remove => remove());
+}
