@@ -81,6 +81,9 @@ test('settings layout contracts define desktop and narrow-screen toolbar rules',
   assert.match(css, /\.sqr-settings\s*\{[\s\S]*border:\s*0[;\s][\s\S]*padding:\s*0[;\s]/);
   assert.match(css, /\.sqr-root-toggle\s*\{[\s\S]*font-size:\s*0\.95rem[;\s][\s\S]*line-height:\s*1\.5/);
   assert.match(css, /\.sqr-root-toggle:hover,[\s\S]*background:\s*transparent/);
+  assert.match(css, /\.sqr-root-toggle-icon\s*\{[\s\S]*background:\s*var\(--SmartThemeBodyColor/);
+  assert.match(css, /\.sqr-root-toggle-icon\s*\{[\s\S]*border-radius:\s*50%/);
+  assert.match(css, /\.sqr-root-toggle-icon\s*\{[\s\S]*height:\s*1\.2rem/);
   assert.match(css, /\.sqr-root-heading[\s\S]*display:\s*(?:flex|grid)/);
   assert.match(css, /\.sqr-model-toolbar[\s\S]*display:\s*(?:flex|grid)/);
   assert.match(css, /\.sqr-prompt-toolbar[\s\S]*display:\s*(?:flex|grid)/);
