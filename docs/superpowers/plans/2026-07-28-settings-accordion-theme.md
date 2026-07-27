@@ -141,14 +141,14 @@ Run: `git diff -- settings.html style.css index.js tests/settings.test.js`
 
 Confirm only accordion behavior, settings CSS, and regression tests changed.
 
-- [ ] **Step 4: Commit the implementation**
+- [x] **Step 4: Commit the implementation**
 
 ```powershell
 git add settings.html style.css index.js tests/settings.test.js
 git -c user.name='Codex' -c user.email='codex@localhost' commit -m "feat: add collapsible themed settings"
 ```
 
-- [ ] **Step 5: Push and verify the branch is clean**
+- [x] **Step 5: Push and verify the branch is clean**
 
 Run: `git push origin master; git status --short --branch`
 
