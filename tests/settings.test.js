@@ -77,6 +77,8 @@ test('settings use compact root heading and inline model and prompt toolbars', (
 
 test('settings layout contracts define desktop and narrow-screen toolbar rules', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.sqr-settings\s*\{[\s\S]*border:\s*0[;\s][\s\S]*padding:\s*0[;\s]/);
+  assert.match(css, /\.sqr-root-toggle\s*\{[\s\S]*font-size:\s*0\.95rem[;\s][\s\S]*min-height:\s*1\.5rem/);
   assert.match(css, /\.sqr-root-heading[\s\S]*display:\s*(?:flex|grid)/);
   assert.match(css, /\.sqr-model-toolbar[\s\S]*display:\s*(?:flex|grid)/);
   assert.match(css, /\.sqr-prompt-toolbar[\s\S]*display:\s*(?:flex|grid)/);
