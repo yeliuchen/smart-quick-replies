@@ -96,3 +96,100 @@ export function getDefaultPanelPosition(inputRect, panelSize, viewport, margin =
     top: (Number(inputRect?.top) || margin) - (Number(panelSize?.height) || 0),
   }, viewport, panelSize, margin);
 }
+
+export function detectApiType(url, selectedType = 'openai', autoDetect = true) {
+  if (!autoDetect) return selectedType;
+  const value = String(url || '').toLowerCase();
+  if (value.includes('anthropic') || value.includes('/messages')) return 'anthropic';
+  if (value.includes('lmstudio') || value.includes('localhost:1234') || value.includes('/api/v1')) return 'lmstudio';
+  return 'openai';
+}
+
+const trimUrl = url => String(url || '').trim().replace(/\/+$/, '');
+
+export function normalizeEndpoint(url, apiType, kind = 'completion') {
+  let base = trimUrl(url);
+  if (!base) return '';
+  if (kind === 'models') {
+    if (/\/models$/i.test(base)) return base;
+    if (/\/chat\/completions$/i.test(base)) base = base.replace(/\/chat\/completions$/i, '');
+    return /\/v1$/i.test(base) ? `${base}/models` : `${base}/v1/models`;
+  }
+  if (apiType === 'anthropic') {
+    if (/\/messages$/i.test(base)) return base;
+    if (/\/v1$/i.test(base)) return `${base}/messages`;
+    return `${base}/v1/messages`;
+  }
+  if (/\/chat\/completions$/i.test(base)) return base;
+  if (/\/v1$/i.test(base)) return `${base}/chat/completions`;
+  return `${base}/v1/chat/completions`;
+}
+
+export function expandPrompt(template, values = {}) {
+  const replacements = {
+    char: values.char ?? '',
+    user: values.user ?? '',
+    char_description: values.charDescription ?? values.char_description ?? '',
+    history: values.history ?? '',
+  };
+  return String(template ?? '').replace(/\{\{\s*(char|user|char_description|history)\s*\}\}/gi, (_match, key) => replacements[key.toLowerCase()] ?? '');
+}
+
+export class InvalidCandidateError extends Error {
+  constructor(message = 'Response must contain four distinct non-empty replies') {
+    super(message);
+    this.name = 'InvalidCandidateError';
+  }
+}
+
+const removeCodeFences = text => String(text ?? '')
+  .replace(/^\s*(?:```|~~~)\s*(?:json)?\s*/i, '')
+  .replace(/\s*(?:```|~~~)\s*$/i, '')
+  .trim();
+
+const extractJsonArray = text => {
+  const source = removeCodeFences(text);
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+    if (character === '[' && start === -1) {
+      start = index;
+      depth = 1;
+      continue;
+    }
+    if (start !== -1 && character === '[') depth += 1;
+    if (start !== -1 && character === ']') {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, index + 1);
+    }
+  }
+  return source;
+};
+
+export function parseCandidateArray(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(extractJsonArray(text));
+  } catch {
+    throw new InvalidCandidateError();
+  }
+  if (!Array.isArray(parsed) || parsed.length !== 4 || parsed.some(item => typeof item !== 'string' || !item.trim())) {
+    throw new InvalidCandidateError();
+  }
+  const candidates = parsed.map(item => item.trim());
+  if (new Set(candidates).size !== 4) throw new InvalidCandidateError();
+  return candidates;
+}
