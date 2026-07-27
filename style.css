@@ -44,7 +44,8 @@
   border-left: 3px solid var(--SmartThemeQuoteColor, #8ab4f8);
   font-size: 0.95rem;
   font-weight: 600;
-  min-height: 1.5rem;
+  line-height: 1.5;
+  min-height: 0;
   padding: 0.1rem 0.2rem 0.1rem 0.5rem;
 }
 
@@ -55,15 +56,11 @@
   min-width: 0;
 }
 
-.sqr-root-accent {
-  background: var(--SmartThemeQuoteColor, #8ab4f8);
-  border-radius: 999px;
-  height: 0.35rem;
-  width: 0.35rem;
+.sqr-root-toggle:hover,
+.sqr-root-toggle:focus-visible {
+  background: transparent;
 }
 
-.sqr-root-toggle:hover,
-.sqr-root-toggle:focus-visible,
 .sqr-section-toggle:hover,
 .sqr-section-toggle:focus-visible {
   background: color-mix(in srgb, var(--SmartThemeQuoteColor, #8ab4f8) 22%, transparent);
