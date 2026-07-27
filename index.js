@@ -845,6 +845,10 @@ const DEFAULT_EVENT_TYPES = Object.freeze({
 
 const resolveEventType = (context, name, windowImpl) => context.eventTypes?.[name] ?? windowImpl?.event_types?.[name] ?? DEFAULT_EVENT_TYPES[name];
 
+export function shouldSuggestOnCharacterRendered(settings = {}, generationActive = false) {
+  return !generationActive && settings.triggerMode === 'auto';
+}
+
 const subscribeEvent = (source, eventName, handler) => {
   if (!source || !eventName) return () => {};
   if (typeof source.on === 'function') {
@@ -884,6 +888,7 @@ export function bootstrap(context = {}) {
   let stoppedTimer = null;
   let generationId = 0;
   let handledStopId = -1;
+  let generationActive = false;
 
   const getLiveContext = () => {
     if (typeof context.getContext === 'function') return context.getContext() ?? {};
@@ -982,6 +987,7 @@ export function bootstrap(context = {}) {
 
   const eventHandler = (name, handler) => cleanups.push(subscribeEvent(eventSource, resolveEventType(context, name, windowImpl), handler));
   eventHandler('GENERATION_STARTED', () => {
+    generationActive = true;
     generationId += 1;
     handledStopId = -1;
     coordinator.cancel();
@@ -989,9 +995,10 @@ export function bootstrap(context = {}) {
   });
   eventHandler('CHARACTER_MESSAGE_RENDERED', () => {
     const currentSettings = getSettings();
-    if (currentSettings.triggerMode === 'auto') requestSuggestions(false);
+    if (shouldSuggestOnCharacterRendered(currentSettings, generationActive)) requestSuggestions(false);
   });
   eventHandler('GENERATION_STOPPED', () => {
+    generationActive = false;
     const currentSettings = getSettings();
     if (currentSettings.triggerMode !== 'auto' || !currentSettings.interruptedAutoGenerate || handledStopId === generationId) return;
     handledStopId = generationId;

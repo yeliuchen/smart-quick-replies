@@ -15,6 +15,7 @@ import {
   readApiKey,
   writeApiKey,
   resolveRuntimeSettings,
+  shouldSuggestOnCharacterRendered,
 } from '../index.js';
 
 test('default settings use automatic trigger, 20 messages, compression, and four candidates', () => {
@@ -150,4 +151,10 @@ test('runtime settings prefer the latest persisted extension settings', () => {
   });
   assert.equal(resolved.api.url, persisted.api.url);
   assert.equal(resolved.api.model, persisted.api.model);
+});
+
+test('character render suggestions wait until the main generation stops', () => {
+  assert.equal(shouldSuggestOnCharacterRendered({ triggerMode: 'auto' }, true), false);
+  assert.equal(shouldSuggestOnCharacterRendered({ triggerMode: 'auto' }, false), true);
+  assert.equal(shouldSuggestOnCharacterRendered({ triggerMode: 'manual' }, false), false);
 });
