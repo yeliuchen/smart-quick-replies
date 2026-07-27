@@ -57,7 +57,7 @@ test('LM Studio retries a reasoning-only length response with a larger token bud
   const requests = [];
   const fetchImpl = async (url, init) => {
     requests.push(JSON.parse(init.body));
-    if (requests.length === 1) {
+    if (requests.length <= 2) {
       return {
         ok: true,
         status: 200,
@@ -79,6 +79,7 @@ test('LM Studio retries a reasoning-only length response with a larger token bud
   assert.equal(text, '["a","b","c","d"]');
   assert.equal(requests[0].max_tokens, 80);
   assert.equal(requests[1].max_tokens, 512);
+  assert.equal(requests[2].max_tokens, 1024);
 });
 
 test('completion and model requests use injectable fetch dependencies', async () => {

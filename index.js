@@ -438,22 +438,22 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     : null;
   const request = buildCompletionRequest(config, promptData, controller?.signal ?? externalSignal);
   try {
-    const payload = await fetchJson(fetchImpl, request.url, request.init);
-    const choice = payload?.choices?.[0];
-    const message = choice?.message;
-    const reasoningOnly = getApiType(config) === 'lmstudio'
-      && choice?.finish_reason === 'length'
-      && message
-      && !String(message.content ?? '').trim()
-      && String(message.reasoning_content ?? message.reasoning ?? '').trim();
-    if (reasoningOnly) {
+    let payload = await fetchJson(fetchImpl, request.url, request.init);
+    for (const retryMaxTokens of [512, 1024]) {
+      const choice = payload?.choices?.[0];
+      const message = choice?.message;
+      const reasoningOnly = getApiType(config) === 'lmstudio'
+        && choice?.finish_reason === 'length'
+        && message
+        && !String(message.content ?? '').trim()
+        && String(message.reasoning_content ?? message.reasoning ?? '').trim();
+      if (!reasoningOnly) break;
       const retryConfig = {
         ...config,
-        maxTokens: Math.max(Number(config.maxTokens ?? config.max_tokens ?? 80), 512),
+        maxTokens: Math.max(Number(config.maxTokens ?? config.max_tokens ?? 80), retryMaxTokens),
       };
       const retryRequest = buildCompletionRequest(retryConfig, promptData, controller?.signal ?? externalSignal);
-      const retryPayload = await fetchJson(fetchImpl, retryRequest.url, retryRequest.init);
-      return parseProviderResponse(retryPayload, config.type);
+      payload = await fetchJson(fetchImpl, retryRequest.url, retryRequest.init);
     }
     return parseProviderResponse(payload, config.type);
   } catch (error) {
