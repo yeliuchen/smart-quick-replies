@@ -12,7 +12,7 @@
 
 - 保留现有五个顶部分页标签和设置项 ID。
 - 多个分页可以同时展开；标题点击不强制其他分页收起。
-- 默认仅通用分页展开，其余分页折叠。
+- 默认五个分页全部折叠；点击顶部标签或标题后展开目标分页。
 - 折叠状态使用原生 `hidden` 与 `aria-expanded`，不新增运行时依赖。
 - 输入框、下拉框、文本域和搜索框必须使用 SillyTavern 主题变量并提供回退值。
 - 不改变 API 请求、快捷回复生成、主 AI 生成流程或浮动面板行为。
@@ -37,7 +37,7 @@ test('settings sections expose independent collapsible headers', () => {
   for (const id of ['general', 'api', 'prompt', 'context', 'appearance']) {
     assert.match(html, new RegExp(`data-sqr-collapse="sqr-${id}"`));
   }
-  assert.match(html, /id="sqr-general"[^>]*data-sqr-section[^>]*aria-expanded="true"/s);
+  assert.match(html, /id="sqr-general"[^>]*data-sqr-section[^>]*hidden[^>]*aria-expanded="false"/s);
   assert.match(html, /id="sqr-api"[^>]*data-sqr-section[^>]*hidden[^>]*aria-expanded="false"/s);
   assert.match(html, /data-sqr-collapse="sqr-api"[^>]*aria-expanded="false"/s);
 });
@@ -70,7 +70,7 @@ Expected: FAIL because settings.html has no `data-sqr-collapse` headers and styl
 
 - [ ] **Step 1: Add a button header to each section**
 
-Use the existing section heading text as a button with `data-sqr-collapse="sqr-<section>"`. Keep `sqr-general` visible and `aria-expanded="true"`; keep the other sections hidden with `aria-expanded="false"`.
+Use the existing section heading text as a button with `data-sqr-collapse="sqr-<section>"`. Keep all five sections hidden with `aria-expanded="false"` on first render.
 
 - [ ] **Step 2: Bind title clicks without coupling sections**
 
@@ -84,7 +84,7 @@ section.setAttribute('aria-expanded', String(!expanded));
 button.setAttribute('aria-expanded', String(!expanded));
 ```
 
-The existing tab listener must only switch the active tab and visible section when a tab is clicked; it must not loop over all sections and close them after an accordion click. A tab click may open its target section so the selected page remains usable, while other sections keep their current state.
+The existing tab listener must only switch the active tab and open its target section when a tab is clicked; it must not loop over all sections and close them after an accordion click. Opening a tab or accordion header never closes other sections.
 
 - [ ] **Step 3: Run the focused tests and verify the markup is green**
 
