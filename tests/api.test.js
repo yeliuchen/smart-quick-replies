@@ -53,6 +53,34 @@ test('LM Studio discovery falls back when the OpenAI endpoint returns an empty l
   ]);
 });
 
+test('LM Studio retries a reasoning-only length response with a larger token budget', async () => {
+  const requests = [];
+  const fetchImpl = async (url, init) => {
+    requests.push(JSON.parse(init.body));
+    if (requests.length === 1) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '', reasoning_content: 'thinking' }, finish_reason: 'length' }] }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: '["a","b","c","d"]' }, finish_reason: 'stop' }] }),
+    };
+  };
+
+  const text = await requestCompletion(
+    { type: 'lmstudio', url: 'http://localhost:1234/v1', model: 'gemma', maxTokens: 80 },
+    { system: 'system', messages: [{ role: 'user', content: 'hi' }] },
+    { fetch: fetchImpl },
+  );
+  assert.equal(text, '["a","b","c","d"]');
+  assert.equal(requests[0].max_tokens, 80);
+  assert.equal(requests[1].max_tokens, 512);
+});
+
 test('completion and model requests use injectable fetch dependencies', async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {

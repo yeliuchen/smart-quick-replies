@@ -433,6 +433,22 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
   const request = buildCompletionRequest(config, promptData, controller?.signal ?? externalSignal);
   try {
     const payload = await fetchJson(fetchImpl, request.url, request.init);
+    const choice = payload?.choices?.[0];
+    const message = choice?.message;
+    const reasoningOnly = getApiType(config) === 'lmstudio'
+      && choice?.finish_reason === 'length'
+      && message
+      && !String(message.content ?? '').trim()
+      && String(message.reasoning_content ?? message.reasoning ?? '').trim();
+    if (reasoningOnly) {
+      const retryConfig = {
+        ...config,
+        maxTokens: Math.max(Number(config.maxTokens ?? config.max_tokens ?? 80), 512),
+      };
+      const retryRequest = buildCompletionRequest(retryConfig, promptData, controller?.signal ?? externalSignal);
+      const retryPayload = await fetchJson(fetchImpl, retryRequest.url, retryRequest.init);
+      return parseProviderResponse(retryPayload, config.type);
+    }
     return parseProviderResponse(payload, config.type);
   } catch (error) {
     if (timedOut) throw createAbortError('API request timed out');
