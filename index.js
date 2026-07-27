@@ -78,6 +78,12 @@ export function mergeSettings(saved = {}) {
   return mergePlainObjects(DEFAULT_SETTINGS, migrateSettings(saved));
 }
 
+export function resolveRuntimeSettings(context = {}, fallback = {}) {
+  const persisted = context.extensionSettings?.smartQuickReplies;
+  const source = isPlainObject(persisted) ? persisted : context.settings ?? fallback;
+  return mergeSettings(source);
+}
+
 export function clampPosition(position, viewport, panelSize, margin = 8) {
   const safeMargin = Math.max(0, Number(margin) || 0);
   const maxLeft = Math.max(safeMargin, Number(viewport?.width || 0) - Number(panelSize?.width || 0) - safeMargin);
@@ -884,7 +890,7 @@ export function bootstrap(context = {}) {
     if (typeof windowImpl?.SillyTavern?.getContext === 'function') return windowImpl.SillyTavern.getContext() ?? {};
     return {};
   };
-  const getSettings = () => context.settings ? mergeSettings(context.settings) : settings;
+  const getSettings = () => resolveRuntimeSettings(context, settings);
   const savePosition = position => positionStore.write(position);
   const getPanelPosition = () => positionStore.read();
   const showPanel = () => {

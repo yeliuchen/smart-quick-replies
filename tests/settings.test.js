@@ -14,6 +14,7 @@ import {
   getApiKeyStorageMode,
   readApiKey,
   writeApiKey,
+  resolveRuntimeSettings,
 } from '../index.js';
 
 test('default settings use automatic trigger, 20 messages, compression, and four candidates', () => {
@@ -138,4 +139,15 @@ test('API keys prefer a Secrets adapter and never enter extension settings', asy
   assert.equal(getApiKeyStorageMode(context), 'secrets');
   assert.equal(await writeApiKey(context, 'openai', 'secret-value'), 'secrets');
   assert.equal(await readApiKey(context, 'openai'), 'secret-value');
+});
+
+test('runtime settings prefer the latest persisted extension settings', () => {
+  const initial = { api: { url: 'http://localhost:1234/v1', model: '' } };
+  const persisted = { api: { url: 'http://127.0.0.1:1234/v1', model: 'gemma-4-e4b-it-ud' } };
+  const resolved = resolveRuntimeSettings({
+    settings: initial,
+    extensionSettings: { smartQuickReplies: persisted },
+  });
+  assert.equal(resolved.api.url, persisted.api.url);
+  assert.equal(resolved.api.model, persisted.api.model);
 });
