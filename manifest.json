@@ -7,5 +7,6 @@
   "css": "style.css",
   "author": "Codex",
   "version": "0.1.0",
-  "homePage": "https://github.com/yeliuchen/smart-quick-replies"
+  "homePage": "https://github.com/yeliuchen/smart-quick-replies",
+  "auto_update": true
 }

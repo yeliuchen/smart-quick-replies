@@ -42,8 +42,8 @@ API Key 会优先使用 SillyTavern Secrets 接口。若当前版本没有可用
 本扩展无需构建步骤。仓库根目录执行：
 
 ```powershell
-npm test --prefix smart-quick-replies
-node --check smart-quick-replies/index.js
+npm test
+node --check index.js
 ```
 
 仓库或日志中绝不要放入 API Key、GitHub Token 或其他凭据。若曾经把 GitHub Token 粘贴到聊天、终端或日志中，应立即在 GitHub 撤销并重新生成，不能继续使用旧 Token。
