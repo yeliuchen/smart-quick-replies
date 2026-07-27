@@ -393,7 +393,7 @@ export function parseModelList(payload) {
         ? payload
         : [];
   const names = entries
-    .map(entry => typeof entry === 'string' ? entry : entry?.id ?? entry?.name ?? entry?.model)
+    .map(entry => typeof entry === 'string' ? entry : entry?.id ?? entry?.key ?? entry?.name ?? entry?.model)
     .map(value => String(value ?? '').trim())
     .filter(Boolean);
   return [...new Set(names)].sort((left, right) => left.localeCompare(right));
@@ -453,7 +453,8 @@ export async function requestModels(config = {}, dependencies = {}) {
   for (const url of urls) {
     try {
       const payload = await fetchJson(fetchImpl, url, request.init);
-      return parseModelList(payload);
+      const models = parseModelList(payload);
+      if (models.length || url === urls.at(-1)) return models;
     } catch (error) {
       lastError = error;
     }

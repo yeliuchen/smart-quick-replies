@@ -37,6 +37,22 @@ test('LM Studio model discovery includes the API v1 fallback', () => {
   assert.deepEqual(request.fallbackUrls, ['http://localhost:1234/api/v1/models']);
 });
 
+test('LM Studio discovery falls back when the OpenAI endpoint returns an empty list', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    if (url === 'http://localhost:1234/v1/models') return { ok: true, status: 200, json: async () => ({ data: [] }) };
+    return { ok: true, status: 200, json: async () => ({ models: [{ key: 'loaded-model' }] }) };
+  };
+
+  const models = await requestModels({ type: 'lmstudio', url: 'http://localhost:1234' }, { fetch: fetchImpl });
+  assert.deepEqual(models, ['loaded-model']);
+  assert.deepEqual(calls.map(call => call.url), [
+    'http://localhost:1234/v1/models',
+    'http://localhost:1234/api/v1/models',
+  ]);
+});
+
 test('completion and model requests use injectable fetch dependencies', async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {
