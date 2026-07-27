@@ -68,6 +68,21 @@ test('settings use one outer drawer and five independent inner drawers', () => {
   }
 });
 
+test('settings use compact root heading and inline model and prompt toolbars', () => {
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.match(html, /class="sqr-root-heading"/);
+  assert.match(html, /class="sqr-model-toolbar"[\s\S]*id="sqr-model-search"[\s\S]*id="sqr-fetch-models"/);
+  assert.match(html, /class="sqr-prompt-toolbar"[\s\S]*系统提示词[\s\S]*id="sqr-reset-prompt"/);
+});
+
+test('settings layout contracts define desktop and narrow-screen toolbar rules', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.sqr-root-heading[\s\S]*display:\s*(?:flex|grid)/);
+  assert.match(css, /\.sqr-model-toolbar[\s\S]*display:\s*(?:flex|grid)/);
+  assert.match(css, /\.sqr-prompt-toolbar[\s\S]*display:\s*(?:flex|grid)/);
+  assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*\.sqr-model-toolbar[\s\S]*grid-template-columns:\s*1fr/);
+});
+
 test('settings CSS gives form controls theme-aware colors', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   assert.match(css, /\.sqr-settings[\s\S]*--sqr-input-background/);

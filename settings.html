@@ -1,6 +1,6 @@
 <details class="sqr-settings" id="sqr-settings-root">
   <summary class="sqr-root-toggle" data-sqr-root-toggle aria-expanded="false">
-    <span>智能快捷回复建议</span>
+    <span class="sqr-root-heading"><span class="sqr-root-accent" aria-hidden="true"></span><span>智能快捷回复建议</span></span>
     <span class="sqr-root-toggle-icon" aria-hidden="true">▾</span>
   </summary>
 
@@ -76,10 +76,12 @@
         <input id="sqr-model" type="text" data-sqr-setting="api.model" placeholder="填写模型 ID">
       </label>
       <div class="sqr-field sqr-field-wide sqr-model-picker">
-        <label for="sqr-model-search">模型列表搜索</label>
-        <input id="sqr-model-search" type="search" placeholder="筛选已获取的模型">
+        <div class="sqr-model-toolbar">
+          <label for="sqr-model-search">模型列表搜索</label>
+          <input id="sqr-model-search" type="search" placeholder="筛选已获取的模型">
+          <button id="sqr-fetch-models" class="menu_button" type="button">获取模型列表</button>
+        </div>
         <select id="sqr-model-list" size="4" aria-label="可用模型列表"></select>
-        <button id="sqr-fetch-models" class="menu_button" type="button">获取模型列表</button>
         <span id="sqr-model-status" class="sqr-status" role="status"></span>
       </div>
     </div>
@@ -107,12 +109,14 @@
       <span class="sqr-section-toggle-icon" aria-hidden="true">▾</span>
     </summary>
     <div class="sqr-settings-section-content" id="sqr-prompt-content" data-sqr-section-content>
+      <div class="sqr-prompt-toolbar">
+        <span>系统提示词</span>
+        <button id="sqr-reset-prompt" class="menu_button" type="button">恢复默认提示词</button>
+      </div>
       <label class="sqr-field sqr-field-wide">
-      <span>系统提示词</span>
       <textarea id="sqr-system-prompt" rows="8" data-sqr-setting="systemPrompt" spellcheck="false"></textarea>
-    </label>
+      </label>
     <p class="sqr-help">支持 {{char}} 当前角色名、{{user}} 当前用户名、{{history}} 对话历史和 {{char_description}} 角色描述。若使用 {{history}}，历史会直接放入系统提示词，不再重复发送消息数组。</p>
-      <button id="sqr-reset-prompt" class="menu_button" type="button">恢复默认提示词</button>
     </div>
   </details>
 
