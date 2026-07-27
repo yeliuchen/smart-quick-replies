@@ -55,6 +55,26 @@ test('settings markup contains all required sections and controls', () => {
   }
 });
 
+test('settings sections expose independent collapsible headers', () => {
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  for (const id of ['general', 'api', 'prompt', 'context', 'appearance']) {
+    assert.match(html, new RegExp(`data-sqr-collapse="sqr-${id}"`));
+  }
+  assert.match(html, /id="sqr-general"[^>]*data-sqr-section[^>]*aria-expanded="false"/s);
+  assert.match(html, /id="sqr-general"[^>]*data-sqr-section-content[^>]*hidden/s);
+  assert.match(html, /id="sqr-api"[^>]*data-sqr-section[^>]*hidden[^>]*aria-expanded="false"/s);
+  assert.match(html, /data-sqr-collapse="sqr-api"[^>]*aria-expanded="false"/s);
+});
+
+test('settings CSS gives form controls theme-aware colors', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.sqr-settings[\s\S]*--sqr-input-background/);
+  assert.match(css, /\.sqr-settings[\s\S]*\.sqr-field input/);
+  assert.match(css, /background:\s*var\(--sqr-input-background/);
+  assert.match(css, /color:\s*var\(--sqr-input-text/);
+  assert.match(css, /::placeholder/);
+});
+
 test('position store persists, reads, and clears JSON coordinates', () => {
   const values = new Map();
   const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };

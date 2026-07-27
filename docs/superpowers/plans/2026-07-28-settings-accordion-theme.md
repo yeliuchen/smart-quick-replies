@@ -13,13 +13,13 @@
 - 保留现有五个顶部分页标签和设置项 ID。
 - 多个分页可以同时展开；标题点击不强制其他分页收起。
 - 默认五个分页全部折叠；点击顶部标签或标题后展开目标分页。
-- 折叠状态使用原生 `hidden` 与 `aria-expanded`，不新增运行时依赖。
+- 折叠状态只作用于 section 内的内容区，使用原生 `hidden` 与 `aria-expanded`，保证标题在收起后仍可点击。
 - 输入框、下拉框、文本域和搜索框必须使用 SillyTavern 主题变量并提供回退值。
 - 不改变 API 请求、快捷回复生成、主 AI 生成流程或浮动面板行为。
 
 ## File Map
 
-- `settings.html` — 为五个设置 section 增加折叠标题按钮和无障碍属性。
+- `settings.html` — 为五个设置 section 增加始终可见的折叠标题、独立内容区和无障碍属性。
 - `index.js:513-519` — 绑定 section 折叠标题，并让标签切换保留当前 section 的展开状态。
 - `style.css:1-90` — 增加主题表单控件变量、焦点态和折叠标题样式。
 - `tests/settings.test.js` — 增加结构与 CSS 回归测试。
@@ -37,8 +37,9 @@ test('settings sections expose independent collapsible headers', () => {
   for (const id of ['general', 'api', 'prompt', 'context', 'appearance']) {
     assert.match(html, new RegExp(`data-sqr-collapse="sqr-${id}"`));
   }
-  assert.match(html, /id="sqr-general"[^>]*data-sqr-section[^>]*hidden[^>]*aria-expanded="false"/s);
-  assert.match(html, /id="sqr-api"[^>]*data-sqr-section[^>]*hidden[^>]*aria-expanded="false"/s);
+  assert.match(html, /id="sqr-general"[^>]*data-sqr-section[^>]*aria-expanded="false"/s);
+  assert.match(html, /id="sqr-general"[^>]*data-sqr-section-content[^>]*hidden/s);
+  assert.match(html, /id="sqr-api"[^>]*data-sqr-section[^>]*aria-expanded="false"/s);
   assert.match(html, /data-sqr-collapse="sqr-api"[^>]*aria-expanded="false"/s);
 });
 ```
@@ -70,21 +71,23 @@ Expected: FAIL because settings.html has no `data-sqr-collapse` headers and styl
 
 - [ ] **Step 1: Add a button header to each section**
 
-Use the existing section heading text as a button with `data-sqr-collapse="sqr-<section>"`. Keep all five sections hidden with `aria-expanded="false"` on first render.
+Use the existing section heading text as a button with `data-sqr-collapse="sqr-<section>"`. Keep all five section contents hidden with `aria-expanded="false"` on first render; the outer section cards and title buttons remain visible.
 
 - [ ] **Step 2: Bind title clicks without coupling sections**
 
 In the settings UI binding, add a listener for `[data-sqr-collapse]` that finds the matching section and toggles:
 
 ```js
-const section = container.querySelector(`#${button.dataset.sqrCollapse}`);
-const expanded = !section.hidden;
-section.hidden = expanded;
+const section = [...container.querySelectorAll('[data-sqr-section]')]
+  .find(candidate => candidate.id === button.dataset.sqrCollapse);
+const content = section?.querySelector('[data-sqr-section-content]');
+const expanded = Boolean(content && !content.hidden);
+content.hidden = expanded;
 section.setAttribute('aria-expanded', String(!expanded));
 button.setAttribute('aria-expanded', String(!expanded));
 ```
 
-The existing tab listener must only switch the active tab and open its target section when a tab is clicked; it must not loop over all sections and close them after an accordion click. Opening a tab or accordion header never closes other sections.
+The existing tab listener must only switch the active tab and open its target section content when a tab is clicked; it must not loop over all sections and close them after an accordion click. Opening a tab or accordion header never closes other sections.
 
 - [ ] **Step 3: Run the focused tests and verify the markup is green**
 
@@ -107,7 +110,7 @@ Extend the existing control selector to `input:not([type='checkbox']):not([type=
 
 - [ ] **Step 3: Style collapsible headers**
 
-Add `.sqr-section-toggle` styles with left-aligned text, theme-aware background, border, hover/focus states, and an indicator that rotates when `[aria-expanded='true']`. Remove the old `h3` bottom margin assumption and keep consistent spacing for the content below the toggle.
+Add `.sqr-section-toggle` styles with left-aligned text, theme-aware background, border, hover/focus states, and an indicator that rotates when `[aria-expanded='true']`. Add `.sqr-settings-section-content[hidden] { display: none; }`, remove the old `h3` bottom margin assumption, and keep consistent spacing for the content below the toggle.
 
 - [ ] **Step 4: Run the focused tests and CSS contract test**
 
