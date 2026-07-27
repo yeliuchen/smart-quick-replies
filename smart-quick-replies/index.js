@@ -297,3 +297,161 @@ export function buildPromptMessages(systemPrompt, history = { messages: [] }, va
     messages: hasHistoryPlaceholder ? [] : historyMessages,
   };
 }
+
+const getApiType = config => String(config?.type || 'openai').toLowerCase() === 'anthropic' ? 'anthropic' : String(config?.type || 'openai').toLowerCase();
+
+const getApiKey = config => String(config?.key ?? config?.apiKey ?? '').trim();
+
+const buildProviderHeaders = (config, signal) => {
+  const type = getApiType(config);
+  const key = getApiKey(config);
+  const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+  if (signal) headers.signal = signal;
+  if (type === 'anthropic') {
+    headers['anthropic-version'] = '2023-06-01';
+    if (key) headers['x-api-key'] = key;
+  } else if (key) {
+    headers.Authorization = `Bearer ${key}`;
+  }
+  return headers;
+};
+
+export function buildCompletionRequest(config = {}, promptData = {}, signal) {
+  const type = getApiType(config);
+  const url = normalizeEndpoint(config.url, type, 'completion');
+  const system = String(promptData.system ?? '').trim();
+  const historyMessages = Array.isArray(promptData.messages) ? promptData.messages : [];
+  const messages = system ? [{ role: 'system', content: system }, ...historyMessages] : historyMessages;
+  const common = {
+    model: String(config.model ?? '').trim(),
+    temperature: Number(config.temperature ?? 0.9),
+    top_p: Number(config.topP ?? config.top_p ?? 0.95),
+  };
+  const body = type === 'anthropic'
+    ? {
+      ...common,
+      max_tokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
+      ...(system ? { system } : {}),
+      messages: historyMessages,
+    }
+    : {
+      ...common,
+      max_tokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
+      stream: false,
+      messages,
+    };
+  const headers = buildProviderHeaders(config);
+  return {
+    url,
+    init: {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      ...(signal ? { signal } : {}),
+    },
+  };
+}
+
+export function buildModelsRequest(config = {}) {
+  const type = getApiType(config);
+  const url = normalizeEndpoint(config.url, type, 'models');
+  const fallbackUrls = type === 'lmstudio'
+    ? [`${trimUrl(config.url).replace(/\/v1$/i, '')}/api/v1/models`]
+    : [];
+  return {
+    url,
+    fallbackUrls,
+    init: {
+      method: 'GET',
+      headers: buildProviderHeaders(config),
+    },
+  };
+}
+
+export function parseProviderResponse(payload, apiType = 'openai') {
+  const type = getApiType({ type: apiType });
+  if (typeof payload === 'string') return payload;
+  if (type === 'anthropic') {
+    const textBlock = Array.isArray(payload?.content)
+      ? payload.content.find(block => block?.type === 'text' && typeof block.text === 'string')
+      : null;
+    if (textBlock) return textBlock.text;
+  }
+  const choice = payload?.choices?.[0];
+  if (typeof choice?.message?.content === 'string') return choice.message.content;
+  if (typeof choice?.text === 'string') return choice.text;
+  if (typeof payload?.output_text === 'string') return payload.output_text;
+  throw new Error('API response did not contain text');
+}
+
+export function parseModelList(payload) {
+  const entries = Array.isArray(payload?.data)
+    ? payload.data
+    : Array.isArray(payload?.models)
+      ? payload.models
+      : Array.isArray(payload)
+        ? payload
+        : [];
+  const names = entries
+    .map(entry => typeof entry === 'string' ? entry : entry?.id ?? entry?.name ?? entry?.model)
+    .map(value => String(value ?? '').trim())
+    .filter(Boolean);
+  return [...new Set(names)].sort((left, right) => left.localeCompare(right));
+}
+
+const createAbortError = message => {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
+};
+
+const fetchJson = async (fetchImpl, url, init) => {
+  const response = await fetchImpl(url, init);
+  if (!response?.ok) throw new Error(`API request failed (${Number(response?.status) || 'unknown'})`);
+  return response.json();
+};
+
+export async function requestCompletion(config = {}, promptData = {}, dependencies = {}) {
+  const fetchImpl = dependencies.fetch ?? globalThis.fetch;
+  if (typeof fetchImpl !== 'function') throw new Error('Fetch is unavailable');
+  const AbortControllerImpl = dependencies.AbortController ?? globalThis.AbortController;
+  const controller = AbortControllerImpl ? new AbortControllerImpl() : null;
+  const timeoutMs = Math.max(0, Number(config.timeoutMs ?? 30000));
+  const setTimer = dependencies.setTimeout ?? globalThis.setTimeout;
+  const clearTimer = dependencies.clearTimeout ?? globalThis.clearTimeout;
+  let timedOut = false;
+  const timer = controller && timeoutMs > 0 && typeof setTimer === 'function'
+    ? setTimer(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs)
+    : null;
+  const request = buildCompletionRequest(config, promptData, controller?.signal);
+  try {
+    const payload = await fetchJson(fetchImpl, request.url, request.init);
+    return parseProviderResponse(payload, config.type);
+  } catch (error) {
+    if (timedOut) throw createAbortError('API request timed out');
+    if (error?.name === 'AbortError') throw createAbortError('API request was cancelled');
+    throw error instanceof Error ? error : new Error('API request failed');
+  } finally {
+    if (timer !== null && typeof clearTimer === 'function') clearTimer(timer);
+  }
+}
+
+export async function requestModels(config = {}, dependencies = {}) {
+  const fetchImpl = dependencies.fetch ?? globalThis.fetch;
+  if (typeof fetchImpl !== 'function') throw new Error('Fetch is unavailable');
+  const request = buildModelsRequest(config);
+  const urls = [request.url, ...request.fallbackUrls];
+  let lastError;
+  for (const url of urls) {
+    try {
+      const payload = await fetchJson(fetchImpl, url, request.init);
+      return parseModelList(payload);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Model discovery failed');
+}
