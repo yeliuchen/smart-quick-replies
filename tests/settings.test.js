@@ -10,7 +10,7 @@ import {
   getDefaultPanelPosition,
   createPositionStore,
   createRequestCoordinator,
-  setCollapsibleSection,
+  createDragScheduler,
   getApiKeyStorageMode,
   readApiKey,
   writeApiKey,
@@ -56,15 +56,16 @@ test('settings markup contains all required sections and controls', () => {
   }
 });
 
-test('settings sections expose independent collapsible headers', () => {
+test('settings use one outer drawer and five independent inner drawers', () => {
   const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.match(html, /<details[^>]*class="sqr-settings"[^>]*id="sqr-settings-root"/s);
+  assert.match(html, /<summary[^>]*data-sqr-root-toggle/);
+  assert.doesNotMatch(html, /data-sqr-tab=/);
   for (const id of ['general', 'api', 'prompt', 'context', 'appearance']) {
+    assert.match(html, new RegExp(`<details[^>]*id="sqr-${id}"[^>]*data-sqr-section`));
     assert.match(html, new RegExp(`data-sqr-collapse="sqr-${id}"`));
+    assert.match(html, new RegExp(`id="sqr-${id}"[^>]*>(?:\\s|.)*?<summary`));
   }
-  assert.match(html, /id="sqr-general"[^>]*data-sqr-section[^>]*aria-expanded="false"/s);
-  assert.match(html, /data-sqr-section-content[^>]*hidden/s);
-  assert.match(html, /id="sqr-api"[^>]*data-sqr-section[^>]*aria-expanded="false"/s);
-  assert.match(html, /data-sqr-collapse="sqr-api"[^>]*aria-expanded="false"/s);
 });
 
 test('settings CSS gives form controls theme-aware colors', () => {
@@ -76,21 +77,14 @@ test('settings CSS gives form controls theme-aware colors', () => {
   assert.match(css, /::placeholder/);
 });
 
-test('collapsible state changes only the selected section', () => {
-  const attributes = new Map();
-  const section = { setAttribute: (name, value) => attributes.set(`section:${name}`, value) };
-  const toggleAttributes = new Map();
-  const toggle = { setAttribute: (name, value) => toggleAttributes.set(name, value) };
-  const content = { hidden: true };
-
-  assert.equal(setCollapsibleSection(section, content, toggle, true), true);
-  assert.equal(content.hidden, false);
-  assert.equal(attributes.get('section:aria-expanded'), 'true');
-  assert.equal(toggleAttributes.get('aria-expanded'), 'true');
-
-  assert.equal(setCollapsibleSection(section, content, toggle, false), false);
-  assert.equal(content.hidden, true);
-  assert.equal(attributes.get('section:aria-expanded'), 'false');
+test('drag scheduler keeps only the newest pending point until the frame runs', () => {
+  const frames = [];
+  const scheduler = createDragScheduler(callback => frames.push(callback));
+  scheduler.queue({ left: 10, top: 20 });
+  scheduler.queue({ left: 30, top: 40 });
+  assert.equal(frames.length, 1);
+  frames.shift()();
+  assert.deepEqual(scheduler.flushes, [{ left: 30, top: 40 }]);
 });
 
 test('position store persists, reads, and clears JSON coordinates', () => {

@@ -28,7 +28,7 @@
 **Files:**
 - Modify: `tests/settings.test.js`
 
-- [ ] **Step 1: Replace the old tab/hidden markup assertions**
+- [x] **Step 1: Replace the old tab/hidden markup assertions**
 
 ```js
 test('settings use one outer drawer and five independent inner drawers', () => {
@@ -44,7 +44,7 @@ test('settings use one outer drawer and five independent inner drawers', () => {
 });
 ```
 
-- [ ] **Step 2: Add the failing drag scheduler test**
+- [x] **Step 2: Add the failing drag scheduler test**
 
 ```js
 test('drag scheduler keeps only the newest pending point until the frame runs', () => {
@@ -58,7 +58,7 @@ test('drag scheduler keeps only the newest pending point until the frame runs', 
 });
 ```
 
-- [ ] **Step 3: Run the focused tests and verify they fail**
+- [x] **Step 3: Run the focused tests and verify they fail**
 
 Run: `node --test tests/settings.test.js`
 
@@ -71,19 +71,19 @@ Expected: FAIL because the markup still uses a div plus tab buttons and no drag 
 - Modify: `index.js`
 - Modify: `style.css`
 
-- [ ] **Step 1: Replace the root and section wrappers**
+- [x] **Step 1: Replace the root and section wrappers**
 
 Use `<details class="sqr-settings" id="sqr-settings-root">` with a root `<summary data-sqr-root-toggle>智能快捷回复建议</summary>`. Move the five setting sections inside the details body. Replace each section with `<details class="sqr-settings-section" id="sqr-api" data-sqr-section>` and put its existing controls below a `<summary data-sqr-collapse="sqr-api">API 配置</summary>`.
 
-- [ ] **Step 2: Remove tab-only listeners and synchronize native toggle state**
+- [x] **Step 2: Remove tab-only listeners and synchronize native toggle state**
 
 In `renderSettings`, remove the `[data-sqr-tab]` loops. For every `[data-sqr-section]` and the root details element, listen for `toggle` and set the matching summary’s `aria-expanded` to `String(details.open)`. Keep all existing setting input and button handlers unchanged.
 
-- [ ] **Step 3: Add resilient details styling**
+- [x] **Step 3: Add resilient details styling**
 
 Style `summary` as a full-width row, hide the default marker, add a custom chevron, and rotate it under `details[open]`. Keep the form controls inside the details body. Do not use `[hidden]` as the only visibility mechanism.
 
-- [ ] **Step 4: Run the focused settings tests**
+- [x] **Step 4: Run the focused settings tests**
 
 Run: `node --test tests/settings.test.js`
 
@@ -96,19 +96,19 @@ Expected: all settings structure and behavior tests pass.
 - Modify: `tests/settings.test.js`
 - Modify: `style.css`
 
-- [ ] **Step 1: Add the pure drag scheduler**
+- [x] **Step 1: Add the pure drag scheduler**
 
 Export `createDragScheduler(requestFrame)` returning `{ queue(point), flushes }`. `queue` stores only the newest point and schedules one frame; the frame pushes the newest point to `flushes` and clears the pending flag.
 
-- [ ] **Step 2: Integrate scheduler into createPanel**
+- [x] **Step 2: Integrate scheduler into createPanel**
 
 Replace direct `setPosition` and `callbacks.onMove` calls inside `pointermove` with a scheduler callback that sets `element.style.transform = translate3d(...)`. On pointerup/pointercancel, apply the final coordinate to `left/top`, clear transform, call `callbacks.onMove` once, remove listeners, and cancel any pending frame when possible.
 
-- [ ] **Step 3: Use pointer capture when available**
+- [x] **Step 3: Use pointer capture when available**
 
 On pointerdown call `dragHandle.setPointerCapture?.(event.pointerId)`. On end call `releasePointerCapture?.(event.pointerId)` and listen for `pointercancel` as well as `pointerup`.
 
-- [ ] **Step 4: Run focused drag tests and full tests**
+- [x] **Step 4: Run focused drag tests and full tests**
 
 Run: `node --test tests/settings.test.js` and then `npm test`.
 
@@ -119,13 +119,13 @@ Expected: all tests pass with zero failures.
 **Files:**
 - Verify: `settings.html`, `style.css`, `index.js`, `tests/settings.test.js`
 
-- [ ] **Step 1: Run static checks**
+- [x] **Step 1: Run static checks**
 
 Run: `node --check index.js; git diff --check`
 
 Expected: both commands exit 0.
 
-- [ ] **Step 2: Review scope and secret scan**
+- [x] **Step 2: Review scope and secret scan**
 
 Run: `git diff --stat` and scan repository files for credential-like strings without printing secrets.
 

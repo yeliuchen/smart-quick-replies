@@ -478,15 +478,6 @@ const parseSettingValue = element => {
   return element.value;
 };
 
-export function setCollapsibleSection(section, content, toggle, expanded) {
-  if (!section || !content) return false;
-  const nextExpanded = Boolean(expanded);
-  content.hidden = !nextExpanded;
-  section.setAttribute?.('aria-expanded', String(nextExpanded));
-  toggle?.setAttribute?.('aria-expanded', String(nextExpanded));
-  return nextExpanded;
-}
-
 export function renderSettings(container, settings = {}, handlers = {}) {
   if (!container || typeof container.querySelectorAll !== 'function') return () => {};
   const listeners = [];
@@ -519,33 +510,16 @@ export function renderSettings(container, settings = {}, handlers = {}) {
     });
   }
 
-  const sections = [...container.querySelectorAll('[data-sqr-section]')];
-  const findSection = id => sections.find(section => section.id === id);
-  const setSectionExpanded = (section, expanded) => {
-    if (!section) return;
-    const content = section.querySelector('[data-sqr-section-content]');
-    const toggle = [...container.querySelectorAll('[data-sqr-collapse]')]
-      .find(button => button.dataset.sqrCollapse === section.id);
-    setCollapsibleSection(section, content, toggle, expanded);
+  const details = [];
+  if (container.tagName?.toLowerCase() === 'details') details.push(container);
+  details.push(...container.querySelectorAll('[data-sqr-section]'));
+  const syncDisclosureState = detailsElement => {
+    const summary = detailsElement.querySelector('summary');
+    summary?.setAttribute('aria-expanded', String(Boolean(detailsElement.open)));
   };
-
-  for (const button of container.querySelectorAll('[data-sqr-collapse]')) {
-    listen(button, 'click', () => {
-      const section = findSection(button.dataset.sqrCollapse);
-      const content = section?.querySelector('[data-sqr-section-content]');
-      setSectionExpanded(section, Boolean(content && content.hidden));
-      for (const tab of container.querySelectorAll('[data-sqr-tab]')) {
-        tab.classList.toggle('active', tab.dataset.sqrTab === section?.id);
-      }
-    });
-  }
-
-  for (const button of container.querySelectorAll('[data-sqr-tab]')) {
-    listen(button, 'click', () => {
-      const targetSection = findSection(button.dataset.sqrTab);
-      setSectionExpanded(targetSection, true);
-      for (const tab of container.querySelectorAll('[data-sqr-tab]')) tab.classList.toggle('active', tab === button);
-    });
+  for (const detailsElement of details) {
+    syncDisclosureState(detailsElement);
+    listen(detailsElement, 'toggle', () => syncDisclosureState(detailsElement));
   }
 
   const resetPosition = container.querySelector('#sqr-reset-position');
@@ -627,6 +601,30 @@ export function createRequestCoordinator(AbortControllerImpl = globalThis.AbortC
   };
 }
 
+export function createDragScheduler(requestFrame, onFrame = null) {
+  let pending = null;
+  let scheduled = false;
+  const flushes = [];
+  const schedule = typeof requestFrame === 'function' ? requestFrame : callback => callback();
+  const flush = () => {
+    scheduled = false;
+    if (!pending) return;
+    const point = pending;
+    pending = null;
+    if (onFrame) onFrame(point);
+    else flushes.push(point);
+  };
+  return {
+    queue(point) {
+      pending = { left: Number(point.left), top: Number(point.top) };
+      if (scheduled) return;
+      scheduled = true;
+      schedule(flush);
+    },
+    flushes,
+  };
+}
+
 export function createPanel(documentImpl, callbacks = {}) {
   if (!documentImpl?.createElement) throw new Error('A browser document is required');
   const element = documentImpl.createElement('div');
@@ -675,6 +673,10 @@ export function createPanel(documentImpl, callbacks = {}) {
   };
   let position = null;
   let dragState = null;
+  const windowImpl = documentImpl.defaultView ?? globalThis.window;
+  const requestFrame = typeof windowImpl?.requestAnimationFrame === 'function'
+    ? windowImpl.requestAnimationFrame.bind(windowImpl)
+    : callback => setTimeout(callback, 0);
 
   const hide = () => {
     element.hidden = true;
@@ -742,23 +744,51 @@ export function createPanel(documentImpl, callbacks = {}) {
   }));
   listen(refresh, 'click', () => callbacks.onRefresh?.());
 
+  const dragScheduler = createDragScheduler(requestFrame, point => {
+    if (!dragState) return;
+    const leftDelta = point.left - dragState.left;
+    const topDelta = point.top - dragState.top;
+    element.style.transform = `translate3d(${leftDelta}px, ${topDelta}px, 0)`;
+  });
   const move = event => {
     if (!dragState) return;
-    setPosition({ left: dragState.left + event.clientX - dragState.x, top: dragState.top + event.clientY - dragState.y });
-    callbacks.onMove?.(position);
+    dragState.pending = {
+      left: dragState.left + event.clientX - dragState.x,
+      top: dragState.top + event.clientY - dragState.y,
+    };
+    dragScheduler.queue(dragState.pending);
   };
-  const endDrag = () => {
+  const endDrag = event => {
     if (!dragState) return;
+    const finished = dragState;
     dragState = null;
+    const finalPosition = finished.pending ?? { left: finished.left, top: finished.top };
+    element.style.transform = '';
+    element.classList.remove('sqr-dragging');
+    setPosition(finalPosition);
+    callbacks.onMove?.(position);
+    try {
+      dragHandle.releasePointerCapture?.(finished.pointerId);
+    } catch {
+      // Ignore releases after the pointer has already been cancelled.
+    }
     documentImpl.removeEventListener('pointermove', move);
     documentImpl.removeEventListener('pointerup', endDrag);
+    documentImpl.removeEventListener('pointercancel', endDrag);
   };
   listen(dragHandle, 'pointerdown', event => {
     event.preventDefault();
     const rect = element.getBoundingClientRect();
-    dragState = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
+    dragState = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top, pointerId: event.pointerId, pending: null };
+    element.classList.add('sqr-dragging');
+    try {
+      dragHandle.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Pointer capture is optional in test doubles and older browsers.
+    }
     documentImpl.addEventListener('pointermove', move);
     documentImpl.addEventListener('pointerup', endDrag);
+    documentImpl.addEventListener('pointercancel', endDrag);
   });
 
   documentImpl.body?.appendChild(element);
