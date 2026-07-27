@@ -10,6 +10,9 @@ import {
   getDefaultPanelPosition,
   createPositionStore,
   createRequestCoordinator,
+  getApiKeyStorageMode,
+  readApiKey,
+  writeApiKey,
 } from '../index.js';
 
 test('default settings use automatic trigger, 20 messages, compression, and four candidates', () => {
@@ -70,4 +73,15 @@ test('request coordinator makes only the newest request current', () => {
   assert.equal(coordinator.isCurrent(second.id), true);
   coordinator.cancel();
   assert.equal(coordinator.isCurrent(second.id), false);
+});
+
+test('API keys prefer a Secrets adapter and never enter extension settings', async () => {
+  const secrets = new Map();
+  const context = {
+    getSecret: key => secrets.get(key) ?? '',
+    setSecret: (key, value) => secrets.set(key, value),
+  };
+  assert.equal(getApiKeyStorageMode(context), 'secrets');
+  assert.equal(await writeApiKey(context, 'openai', 'secret-value'), 'secrets');
+  assert.equal(await readApiKey(context, 'openai'), 'secret-value');
 });

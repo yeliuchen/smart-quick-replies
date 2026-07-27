@@ -1,0 +1,11 @@
+{
+  "display_name": "智能快捷回复建议",
+  "loading_order": 10,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Codex",
+  "version": "0.1.0",
+  "homePage": "https://github.com/yeliuchen/smart-quick-replies"
+}

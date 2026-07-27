@@ -825,7 +825,7 @@ export function bootstrap(context = {}) {
   };
   const resolveApiConfig = currentSettings => {
     const type = detectApiType(currentSettings.api.url, currentSettings.api.type, currentSettings.api.autoDetect);
-    return { ...currentSettings.api, type, key: currentSettings.api.key ?? currentSettings.apiKey ?? '' };
+    return { ...currentSettings.api, type, key: currentSettings.api.key ?? context.apiKey ?? currentSettings.apiKey ?? '' };
   };
   const requestSuggestions = async (interrupted = false) => {
     const currentSettings = getSettings();
@@ -948,4 +948,238 @@ export function bootstrap(context = {}) {
     if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
     cleanups.splice(0).forEach(cleanup => cleanup());
   };
+}
+
+const SECRET_STORAGE_PREFIX = 'smart-quick-replies.secret.apiKey.';
+
+const getStorage = context => context.storage ?? context.window?.localStorage ?? globalThis.localStorage;
+
+const getSecretAdapter = context => {
+  const roots = [
+    context,
+    context.secrets,
+    context.secretStorage,
+    context.SillyTavern,
+    context.window?.SillyTavern,
+  ].filter(Boolean);
+  const readNames = ['getSecret', 'readSecret', 'get'];
+  const writeNames = ['setSecret', 'writeSecret', 'set'];
+  const readRoot = roots.find(root => readNames.some(name => typeof root[name] === 'function'));
+  const writeRoot = roots.find(root => writeNames.some(name => typeof root[name] === 'function'));
+  if (!readRoot && !writeRoot) return null;
+  const readName = readNames.find(name => typeof readRoot?.[name] === 'function');
+  const writeName = writeNames.find(name => typeof writeRoot?.[name] === 'function');
+  return {
+    read: readName ? key => readRoot[readName](key) : null,
+    write: writeName ? (key, value) => writeRoot[writeName](key, value) : null,
+  };
+};
+
+const secretStorageKey = provider => `${SECRET_STORAGE_PREFIX}${String(provider || 'openai').toLowerCase()}`;
+
+export function getApiKeyStorageMode(context = {}) {
+  return getSecretAdapter(context) ? 'secrets' : 'localStorage';
+}
+
+export async function readApiKey(context = {}, provider = 'openai') {
+  const adapter = getSecretAdapter(context);
+  const key = secretStorageKey(provider);
+  if (adapter?.read) {
+    try {
+      const value = await adapter.read(key);
+      return typeof value === 'string' ? value : String(value?.value ?? '');
+    } catch {
+      // Fall back to the namespaced local value when an older Secrets API rejects the key.
+    }
+  }
+  try {
+    return String(getStorage(context)?.getItem?.(key) ?? '');
+  } catch {
+    return '';
+  }
+}
+
+export async function writeApiKey(context = {}, provider = 'openai', value = '') {
+  const adapter = getSecretAdapter(context);
+  const key = secretStorageKey(provider);
+  const safeValue = String(value ?? '');
+  if (adapter?.write) {
+    try {
+      await adapter.write(key, safeValue);
+      return 'secrets';
+    } catch {
+      // Use the explicit local fallback only when the Secrets API is unavailable at runtime.
+    }
+  }
+  try {
+    const storage = getStorage(context);
+    if (safeValue) storage?.setItem?.(key, safeValue);
+    else storage?.removeItem?.(key);
+  } catch {
+    // Ignore unavailable local storage; the UI will still keep manual entry enabled.
+  }
+  return 'localStorage';
+}
+
+const setNestedValue = (target, path, value) => {
+  const keys = String(path).split('.');
+  const last = keys.pop();
+  let cursor = target;
+  for (const key of keys) {
+    if (!isPlainObject(cursor[key])) cursor[key] = {};
+    cursor = cursor[key];
+  }
+  cursor[last] = value;
+};
+
+const persistExtensionSettings = (context, settings) => {
+  if (context.extensionSettings) context.extensionSettings.smartQuickReplies = settings;
+  if (context.settings) context.settings = settings;
+  const save = context.saveSettingsDebounced ?? context.window?.saveSettingsDebounced ?? globalThis.saveSettingsDebounced;
+  if (typeof save === 'function') save();
+};
+
+export async function loadExtensionSettings(context = {}) {
+  const saved = context.settings ?? context.extensionSettings?.smartQuickReplies ?? {};
+  const settings = mergeSettings(saved);
+  const type = detectApiType(settings.api.url, settings.api.type, settings.api.autoDetect);
+  const apiKey = await readApiKey(context, type);
+  return { settings, apiKey, keyStorage: getApiKeyStorageMode(context) };
+}
+
+export async function initSettingsUI(context = {}) {
+  const documentImpl = context.document ?? globalThis.document;
+  const root = context.root ?? context.container ?? documentImpl?.querySelector?.('#sqr-settings-root');
+  if (!root) return () => {};
+  const loaded = await loadExtensionSettings(context);
+  const settings = loaded.settings;
+  const keyInput = root.querySelector('#sqr-api-key');
+  const keyStatus = root.querySelector('#sqr-key-status');
+  const modelStatus = root.querySelector('#sqr-model-status');
+  const modelList = root.querySelector('#sqr-model-list');
+  const modelSearch = root.querySelector('#sqr-model-search');
+  const positionDisplay = root.querySelector('#sqr-position-display');
+  const positionStore = createPositionStore(context.storage ?? context.window?.localStorage ?? globalThis.localStorage, 'smart-quick-replies.position');
+  const cleanups = [];
+  const persist = () => persistExtensionSettings(context, settings);
+  const updateKeyStatus = mode => {
+    if (!keyStatus) return;
+    keyStatus.textContent = mode === 'secrets'
+      ? 'API Key 当前由 SillyTavern Secrets 管理。'
+      : '未发现 Secrets 接口，API Key 将保存到本地存储回退位置，请注意浏览器数据安全。';
+  };
+  const renderPosition = () => {
+    const position = positionStore.read();
+    if (positionDisplay) positionDisplay.textContent = position ? `left: ${position.left}, top: ${position.top}` : '默认位置';
+  };
+  const cleanupBinding = renderSettings(root, settings, {
+    save(path, value) {
+      setNestedValue(settings, path, value);
+      persist();
+    },
+    async fetchModels() {
+      if (modelStatus) modelStatus.textContent = '正在获取模型列表…';
+      try {
+        const type = detectApiType(settings.api.url, settings.api.type, settings.api.autoDetect);
+        const key = keyInput?.value || await readApiKey(context, type);
+        const models = await requestModels({ ...settings.api, type, key }, { fetch: context.fetch ?? globalThis.fetch });
+        if (modelList) {
+          modelList.replaceChildren();
+          for (const model of models) {
+            const option = documentImpl.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            modelList.appendChild(option);
+          }
+        }
+        if (modelStatus) modelStatus.textContent = models.length ? `已获取 ${models.length} 个模型。` : '接口返回的模型列表为空，请手动填写。';
+      } catch {
+        if (modelStatus) modelStatus.textContent = '获取模型失败，请检查 URL、跨域设置或手动填写模型名称。';
+      }
+    },
+    resetPosition() {
+      positionStore.clear();
+      settings.position = null;
+      persist();
+      renderPosition();
+    },
+    resetPrompt() {
+      settings.systemPrompt = DEFAULT_SYSTEM_PROMPT;
+      const prompt = root.querySelector('#sqr-system-prompt');
+      if (prompt) prompt.value = DEFAULT_SYSTEM_PROMPT;
+      persist();
+    },
+  });
+  if (keyInput) {
+    keyInput.value = loaded.apiKey;
+    const onKeyChange = async () => {
+      const type = detectApiType(settings.api.url, settings.api.type, settings.api.autoDetect);
+      const mode = await writeApiKey(context, type, keyInput.value);
+      updateKeyStatus(mode);
+    };
+    keyInput.addEventListener('change', onKeyChange);
+    cleanups.push(() => keyInput.removeEventListener('change', onKeyChange));
+  }
+  updateKeyStatus(loaded.keyStorage);
+  renderPosition();
+  cleanups.push(cleanupBinding);
+  return () => cleanups.splice(0).forEach(cleanup => cleanup());
+}
+
+export async function initializeExtension(context = {}) {
+  const documentImpl = context.document ?? globalThis.document;
+  const windowImpl = context.window ?? globalThis.window;
+  if (!documentImpl) return () => {};
+  const stContext = typeof windowImpl?.SillyTavern?.getContext === 'function' ? windowImpl.SillyTavern.getContext() ?? {} : {};
+  const extensionSettings = context.extensionSettings ?? stContext.extensionSettings ?? windowImpl?.extensionSettings;
+  let root = context.root ?? documentImpl.querySelector?.('#sqr-settings-root');
+  const fetchImpl = context.fetch ?? globalThis.fetch;
+  if (!root) {
+    const settingsHost = context.settingsHost ?? documentImpl.querySelector?.('#extensions_settings');
+    if (settingsHost && typeof fetchImpl === 'function') {
+      try {
+        const response = await fetchImpl(new URL('./settings.html', import.meta.url));
+        if (response?.ok) settingsHost.insertAdjacentHTML('beforeend', await response.text());
+      } catch {
+        // The panel can still work when SillyTavern loads settings.html itself.
+      }
+      root = documentImpl.querySelector?.('#sqr-settings-root');
+    }
+  }
+  const loaded = await loadExtensionSettings({ ...context, document: documentImpl, window: windowImpl, extensionSettings });
+  const runtime = {
+    ...context,
+    ...stContext,
+    document: documentImpl,
+    window: windowImpl,
+    extensionSettings,
+    settings: loaded.settings,
+    apiKey: loaded.apiKey,
+  };
+  const panelCleanup = bootstrap(runtime);
+  const settingsCleanup = await initSettingsUI({ ...runtime, root });
+  return () => {
+    panelCleanup();
+    settingsCleanup();
+  };
+}
+
+if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+  const start = () => {
+    if (window.__smartQuickRepliesCleanup) return;
+    void initializeExtension({
+      document,
+      window,
+      eventSource: window.eventSource,
+      eventTypes: window.event_types,
+      extensionSettings: window.extensionSettings,
+      fetch: window.fetch?.bind(window),
+    }).then(cleanup => {
+      window.__smartQuickRepliesCleanup = cleanup;
+    }).catch(() => {
+      // Keep extension startup isolated from the main SillyTavern page.
+    });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
 }
