@@ -107,7 +107,7 @@ export function detectApiType(url, selectedType = 'openai', autoDetect = true) {
   if (!autoDetect) return selectedType;
   const value = String(url || '').toLowerCase();
   if (value.includes('anthropic') || value.includes('/messages')) return 'anthropic';
-  if (value.includes('lmstudio') || value.includes('localhost:1234') || value.includes('/api/v1')) return 'lmstudio';
+  if (value.includes('lmstudio') || value.includes('localhost:1234') || value.includes('127.0.0.1:1234') || value.includes('/api/v1')) return 'lmstudio';
   return 'openai';
 }
 

@@ -5,6 +5,7 @@ import { detectApiType, normalizeEndpoint, expandPrompt, parseCandidateArray } f
 test('auto detection recognizes Anthropic and LM Studio URLs', () => {
   assert.equal(detectApiType('https://api.anthropic.com/v1', 'openai', true), 'anthropic');
   assert.equal(detectApiType('http://localhost:1234/v1', 'openai', true), 'lmstudio');
+  assert.equal(detectApiType('http://127.0.0.1:1234/v1', 'openai', true), 'lmstudio');
   assert.equal(detectApiType('https://gateway.example/v1', 'anthropic', false), 'anthropic');
 });
 
