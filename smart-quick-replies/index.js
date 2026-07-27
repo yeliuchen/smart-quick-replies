@@ -193,3 +193,107 @@ export function parseCandidateArray(text) {
   if (new Set(candidates).size !== 4) throw new InvalidCandidateError();
   return candidates;
 }
+
+export function mapChatMessage(message = {}, names = {}) {
+  const isUser = Boolean(message.is_user ?? message.isUser ?? message.role === 'user');
+  const role = isUser ? 'user' : 'assistant';
+  const fallbackName = isUser ? names.userName : names.charName;
+  const name = String(message.name || fallbackName || (isUser ? 'User' : 'Character'));
+  const content = String(message.mes ?? message.content ?? '').trim();
+  return { name, isUser, role, content };
+}
+
+export function formatHistoryText(messages = []) {
+  return messages
+    .filter(message => message && String(message.content ?? '').trim())
+    .map(message => `${message.name || (message.role === 'user' ? 'User' : 'Character')}: ${String(message.content).trim()}`)
+    .join('\n');
+}
+
+export function estimateTokens(text) {
+  const length = String(text ?? '').length;
+  return length ? Math.ceil(length / 4) : 0;
+}
+
+export function buildHistory(chat = [], options = {}) {
+  const limit = Math.max(0, Number.isFinite(Number(options.limit)) ? Number(options.limit) : 20);
+  const mapped = (Array.isArray(chat) ? chat : [])
+    .map(message => mapChatMessage(message, options))
+    .filter(message => message.content);
+  const messages = limit === 0 ? [] : mapped.slice(-limit);
+  let selected = messages;
+
+  if (options.interrupted) {
+    const incompleteIndex = selected.map(message => message.role).lastIndexOf('assistant');
+    if (incompleteIndex !== -1) {
+      const removeIndexes = new Set([incompleteIndex]);
+      if (selected[incompleteIndex - 1]?.role === 'user') removeIndexes.add(incompleteIndex - 1);
+      selected = selected.filter((_message, index) => !removeIndexes.has(index));
+    }
+  }
+
+  return {
+    messages: selected,
+    interrupted: Boolean(options.interrupted),
+    estimatedTokens: estimateTokens(formatHistoryText(selected)),
+  };
+}
+
+const withCompressionMetadata = (history, metadata = {}) => ({
+  ...history,
+  ...metadata,
+  messages: Array.isArray(metadata.messages) ? metadata.messages : history.messages,
+  estimatedTokens: estimateTokens(formatHistoryText(Array.isArray(metadata.messages) ? metadata.messages : history.messages)),
+});
+
+export async function compressHistory(history = { messages: [] }, options = {}, summarize) {
+  const source = {
+    ...history,
+    messages: Array.isArray(history.messages) ? history.messages : [],
+  };
+  const threshold = Math.max(0, Number(options.threshold) || 0);
+  const strategy = String(options.strategy || 'auto-summary').toLowerCase();
+  const shouldCompress = Boolean(options.enabled) && source.estimatedTokens > threshold && strategy !== 'none' && strategy !== 'no-compression';
+  if (!shouldCompress) return withCompressionMetadata(source, { compressed: false });
+
+  const preserveRecent = Math.max(0, Number(options.preserveRecent) || 0);
+  const recent = preserveRecent === 0 ? [] : source.messages.slice(-preserveRecent);
+  const early = preserveRecent === 0 ? source.messages : source.messages.slice(0, -preserveRecent);
+  const isWindow = strategy === 'window' || strategy === 'sliding-window' || strategy === 'sliding_window';
+  if (isWindow || early.length === 0) {
+    return withCompressionMetadata(source, { messages: recent, compressed: true, strategy: 'window' });
+  }
+
+  try {
+    const summaryResult = typeof summarize === 'function'
+      ? await summarize(early, formatHistoryText(early))
+      : '';
+    const summary = typeof summaryResult === 'string'
+      ? summaryResult.trim()
+      : String(summaryResult?.content ?? summaryResult?.summary ?? '').trim();
+    if (!summary) throw new Error('Empty summary');
+    return withCompressionMetadata(source, {
+      messages: [{ name: 'Conversation summary', role: 'system', isUser: false, content: summary }, ...recent],
+      compressed: true,
+      strategy: 'auto-summary',
+    });
+  } catch {
+    return withCompressionMetadata(source, {
+      messages: recent,
+      compressed: true,
+      strategy: 'window',
+      summaryFallback: true,
+    });
+  }
+}
+
+export function buildPromptMessages(systemPrompt, history = { messages: [] }, values = {}) {
+  const historyMessages = Array.isArray(history.messages) ? history.messages : [];
+  const historyText = values.history ?? formatHistoryText(historyMessages);
+  const expanded = expandPrompt(systemPrompt, { ...values, history: historyText });
+  const hasHistoryPlaceholder = /\{\{\s*history\s*\}\}/i.test(String(systemPrompt ?? ''));
+  return {
+    system: expanded,
+    messages: hasHistoryPlaceholder ? [] : historyMessages,
+  };
+}
