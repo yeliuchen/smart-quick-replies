@@ -7,8 +7,12 @@
     <button class="sqr-tab-button" type="button" data-sqr-tab="sqr-appearance">外观</button>
   </div>
 
-  <section class="sqr-settings-section" id="sqr-general" data-sqr-section>
-    <h3>通用设置</h3>
+  <section class="sqr-settings-section" id="sqr-general" data-sqr-section aria-expanded="false">
+    <button class="sqr-section-toggle" type="button" data-sqr-collapse="sqr-general" aria-controls="sqr-general-content" aria-expanded="false">
+      <span>通用设置</span>
+      <span class="sqr-section-toggle-icon" aria-hidden="true">▾</span>
+    </button>
+    <div class="sqr-settings-section-content" id="sqr-general-content" data-sqr-section-content hidden>
     <div class="sqr-field-grid">
       <label class="sqr-field">
         <span>触发模式</span>
@@ -35,15 +39,20 @@
         <span>点击外部区域关闭面板</span>
       </label>
     </div>
-    <div class="sqr-position-row">
+      <div class="sqr-position-row">
       <span>弹出位置：<output id="sqr-position-display">默认位置</output></span>
       <button id="sqr-reset-position" class="menu_button" type="button">重置弹出位置</button>
+      </div>
     </div>
   </section>
 
-  <section class="sqr-settings-section" id="sqr-api" data-sqr-section hidden>
-    <h3>API 配置</h3>
-    <div class="sqr-field-grid">
+  <section class="sqr-settings-section" id="sqr-api" data-sqr-section aria-expanded="false">
+    <button class="sqr-section-toggle" type="button" data-sqr-collapse="sqr-api" aria-controls="sqr-api-content" aria-expanded="false">
+      <span>API 配置</span>
+      <span class="sqr-section-toggle-icon" aria-hidden="true">▾</span>
+    </button>
+    <div class="sqr-settings-section-content" id="sqr-api-content" data-sqr-section-content hidden>
+      <div class="sqr-field-grid">
       <label class="sqr-field">
         <span>API 类型</span>
         <select id="sqr-api-type" data-sqr-setting="api.type">
@@ -77,8 +86,8 @@
         <span id="sqr-model-status" class="sqr-status" role="status"></span>
       </div>
     </div>
-    <p class="sqr-help">LM Studio 默认可填写 http://localhost:1234/v1，通常不需要 API Key。API Key 仅保存在 SillyTavern Secrets 或明确标注的本地回退位置。</p>
-    <div class="sqr-range-grid">
+      <p class="sqr-help">LM Studio 默认可填写 http://localhost:1234/v1，通常不需要 API Key。API Key 仅保存在 SillyTavern Secrets 或明确标注的本地回退位置。</p>
+      <div class="sqr-range-grid">
       <label class="sqr-range-field">
         <span>温度 <output data-sqr-output="api.temperature">0.9</output></span>
         <input id="sqr-temperature" type="range" min="0" max="2" step="0.05" value="0.9" data-sqr-setting="api.temperature">
@@ -91,22 +100,32 @@
         <span>top_p <output data-sqr-output="api.topP">0.95</output></span>
         <input id="sqr-top-p" type="range" min="0" max="1" step="0.05" value="0.95" data-sqr-setting="api.topP">
       </label>
+      </div>
     </div>
   </section>
 
-  <section class="sqr-settings-section" id="sqr-prompt" data-sqr-section hidden>
-    <h3>提示词编辑</h3>
-    <label class="sqr-field sqr-field-wide">
+  <section class="sqr-settings-section" id="sqr-prompt" data-sqr-section aria-expanded="false">
+    <button class="sqr-section-toggle" type="button" data-sqr-collapse="sqr-prompt" aria-controls="sqr-prompt-content" aria-expanded="false">
+      <span>提示词编辑</span>
+      <span class="sqr-section-toggle-icon" aria-hidden="true">▾</span>
+    </button>
+    <div class="sqr-settings-section-content" id="sqr-prompt-content" data-sqr-section-content hidden>
+      <label class="sqr-field sqr-field-wide">
       <span>系统提示词</span>
       <textarea id="sqr-system-prompt" rows="8" data-sqr-setting="systemPrompt" spellcheck="false"></textarea>
     </label>
     <p class="sqr-help">支持 {{char}} 当前角色名、{{user}} 当前用户名、{{history}} 对话历史和 {{char_description}} 角色描述。若使用 {{history}}，历史会直接放入系统提示词，不再重复发送消息数组。</p>
-    <button id="sqr-reset-prompt" class="menu_button" type="button">恢复默认提示词</button>
+      <button id="sqr-reset-prompt" class="menu_button" type="button">恢复默认提示词</button>
+    </div>
   </section>
 
-  <section class="sqr-settings-section" id="sqr-context" data-sqr-section hidden>
-    <h3>上下文与压缩</h3>
-    <div class="sqr-field-grid">
+  <section class="sqr-settings-section" id="sqr-context" data-sqr-section aria-expanded="false">
+    <button class="sqr-section-toggle" type="button" data-sqr-collapse="sqr-context" aria-controls="sqr-context-content" aria-expanded="false">
+      <span>上下文与压缩</span>
+      <span class="sqr-section-toggle-icon" aria-hidden="true">▾</span>
+    </button>
+    <div class="sqr-settings-section-content" id="sqr-context-content" data-sqr-section-content hidden>
+      <div class="sqr-field-grid">
       <label class="sqr-field">
         <span>最近历史消息条数</span>
         <input id="sqr-history-limit" type="number" min="1" max="100" step="1" data-sqr-setting="historyLimit">
@@ -143,12 +162,17 @@
         <span>独立摘要 API URL（可选）</span>
         <input id="sqr-summary-api-url" type="url" data-sqr-setting="compression.summaryApiUrl">
       </label>
+      </div>
     </div>
   </section>
 
-  <section class="sqr-settings-section" id="sqr-appearance" data-sqr-section hidden>
-    <h3>外观微调</h3>
-    <div class="sqr-range-grid">
+  <section class="sqr-settings-section" id="sqr-appearance" data-sqr-section aria-expanded="false">
+    <button class="sqr-section-toggle" type="button" data-sqr-collapse="sqr-appearance" aria-controls="sqr-appearance-content" aria-expanded="false">
+      <span>外观微调</span>
+      <span class="sqr-section-toggle-icon" aria-hidden="true">▾</span>
+    </button>
+    <div class="sqr-settings-section-content" id="sqr-appearance-content" data-sqr-section-content hidden>
+      <div class="sqr-range-grid">
       <label class="sqr-range-field">
         <span>面板透明度 <output data-sqr-output="appearance.opacity">0.94</output></span>
         <input id="sqr-opacity" type="range" min="0.4" max="1" step="0.01" value="0.94" data-sqr-setting="appearance.opacity">
@@ -161,6 +185,7 @@
         <span>按钮文字颜色（可选）</span>
         <input id="sqr-button-text-color" type="text" data-sqr-setting="appearance.buttonTextColor" placeholder="使用主题默认色">
       </label>
+      </div>
     </div>
   </section>
 </div>

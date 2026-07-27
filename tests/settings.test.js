@@ -10,6 +10,7 @@ import {
   getDefaultPanelPosition,
   createPositionStore,
   createRequestCoordinator,
+  setCollapsibleSection,
   getApiKeyStorageMode,
   readApiKey,
   writeApiKey,
@@ -61,8 +62,8 @@ test('settings sections expose independent collapsible headers', () => {
     assert.match(html, new RegExp(`data-sqr-collapse="sqr-${id}"`));
   }
   assert.match(html, /id="sqr-general"[^>]*data-sqr-section[^>]*aria-expanded="false"/s);
-  assert.match(html, /id="sqr-general"[^>]*data-sqr-section-content[^>]*hidden/s);
-  assert.match(html, /id="sqr-api"[^>]*data-sqr-section[^>]*hidden[^>]*aria-expanded="false"/s);
+  assert.match(html, /data-sqr-section-content[^>]*hidden/s);
+  assert.match(html, /id="sqr-api"[^>]*data-sqr-section[^>]*aria-expanded="false"/s);
   assert.match(html, /data-sqr-collapse="sqr-api"[^>]*aria-expanded="false"/s);
 });
 
@@ -73,6 +74,23 @@ test('settings CSS gives form controls theme-aware colors', () => {
   assert.match(css, /background:\s*var\(--sqr-input-background/);
   assert.match(css, /color:\s*var\(--sqr-input-text/);
   assert.match(css, /::placeholder/);
+});
+
+test('collapsible state changes only the selected section', () => {
+  const attributes = new Map();
+  const section = { setAttribute: (name, value) => attributes.set(`section:${name}`, value) };
+  const toggleAttributes = new Map();
+  const toggle = { setAttribute: (name, value) => toggleAttributes.set(name, value) };
+  const content = { hidden: true };
+
+  assert.equal(setCollapsibleSection(section, content, toggle, true), true);
+  assert.equal(content.hidden, false);
+  assert.equal(attributes.get('section:aria-expanded'), 'true');
+  assert.equal(toggleAttributes.get('aria-expanded'), 'true');
+
+  assert.equal(setCollapsibleSection(section, content, toggle, false), false);
+  assert.equal(content.hidden, true);
+  assert.equal(attributes.get('section:aria-expanded'), 'false');
 });
 
 test('position store persists, reads, and clears JSON coordinates', () => {

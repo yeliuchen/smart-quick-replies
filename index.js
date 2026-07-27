@@ -478,6 +478,15 @@ const parseSettingValue = element => {
   return element.value;
 };
 
+export function setCollapsibleSection(section, content, toggle, expanded) {
+  if (!section || !content) return false;
+  const nextExpanded = Boolean(expanded);
+  content.hidden = !nextExpanded;
+  section.setAttribute?.('aria-expanded', String(nextExpanded));
+  toggle?.setAttribute?.('aria-expanded', String(nextExpanded));
+  return nextExpanded;
+}
+
 export function renderSettings(container, settings = {}, handlers = {}) {
   if (!container || typeof container.querySelectorAll !== 'function') return () => {};
   const listeners = [];
@@ -510,10 +519,31 @@ export function renderSettings(container, settings = {}, handlers = {}) {
     });
   }
 
+  const sections = [...container.querySelectorAll('[data-sqr-section]')];
+  const findSection = id => sections.find(section => section.id === id);
+  const setSectionExpanded = (section, expanded) => {
+    if (!section) return;
+    const content = section.querySelector('[data-sqr-section-content]');
+    const toggle = [...container.querySelectorAll('[data-sqr-collapse]')]
+      .find(button => button.dataset.sqrCollapse === section.id);
+    setCollapsibleSection(section, content, toggle, expanded);
+  };
+
+  for (const button of container.querySelectorAll('[data-sqr-collapse]')) {
+    listen(button, 'click', () => {
+      const section = findSection(button.dataset.sqrCollapse);
+      const content = section?.querySelector('[data-sqr-section-content]');
+      setSectionExpanded(section, Boolean(content && content.hidden));
+      for (const tab of container.querySelectorAll('[data-sqr-tab]')) {
+        tab.classList.toggle('active', tab.dataset.sqrTab === section?.id);
+      }
+    });
+  }
+
   for (const button of container.querySelectorAll('[data-sqr-tab]')) {
     listen(button, 'click', () => {
-      const targetId = button.dataset.sqrTab;
-      for (const section of container.querySelectorAll('[data-sqr-section]')) section.hidden = section.id !== targetId;
+      const targetSection = findSection(button.dataset.sqrTab);
+      setSectionExpanded(targetSection, true);
       for (const tab of container.querySelectorAll('[data-sqr-tab]')) tab.classList.toggle('active', tab === button);
     });
   }

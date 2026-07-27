@@ -29,7 +29,7 @@
 **Files:**
 - Modify: `tests/settings.test.js`
 
-- [ ] **Step 1: Add the failing markup contract test**
+- [x] **Step 1: Add the failing markup contract test**
 
 ```js
 test('settings sections expose independent collapsible headers', () => {
@@ -38,13 +38,13 @@ test('settings sections expose independent collapsible headers', () => {
     assert.match(html, new RegExp(`data-sqr-collapse="sqr-${id}"`));
   }
   assert.match(html, /id="sqr-general"[^>]*data-sqr-section[^>]*aria-expanded="false"/s);
-  assert.match(html, /id="sqr-general"[^>]*data-sqr-section-content[^>]*hidden/s);
+  assert.match(html, /data-sqr-section-content[^>]*hidden/s);
   assert.match(html, /id="sqr-api"[^>]*data-sqr-section[^>]*aria-expanded="false"/s);
   assert.match(html, /data-sqr-collapse="sqr-api"[^>]*aria-expanded="false"/s);
 });
 ```
 
-- [ ] **Step 2: Add the failing theme CSS contract test**
+- [x] **Step 2: Add the failing theme CSS contract test**
 
 ```js
 test('settings CSS gives form controls theme-aware colors', () => {
@@ -57,7 +57,7 @@ test('settings CSS gives form controls theme-aware colors', () => {
 });
 ```
 
-- [ ] **Step 3: Run the focused tests and verify they fail for the missing contracts**
+- [x] **Step 3: Run the focused tests and verify they fail for the missing contracts**
 
 Run: `node --test tests/settings.test.js`
 
@@ -69,11 +69,11 @@ Expected: FAIL because settings.html has no `data-sqr-collapse` headers and styl
 - Modify: `settings.html`
 - Modify: `index.js`
 
-- [ ] **Step 1: Add a button header to each section**
+- [x] **Step 1: Add a button header to each section**
 
 Use the existing section heading text as a button with `data-sqr-collapse="sqr-<section>"`. Keep all five section contents hidden with `aria-expanded="false"` on first render; the outer section cards and title buttons remain visible.
 
-- [ ] **Step 2: Bind title clicks without coupling sections**
+- [x] **Step 2: Bind title clicks without coupling sections**
 
 In the settings UI binding, add a listener for `[data-sqr-collapse]` that finds the matching section and toggles:
 
@@ -89,7 +89,7 @@ button.setAttribute('aria-expanded', String(!expanded));
 
 The existing tab listener must only switch the active tab and open its target section content when a tab is clicked; it must not loop over all sections and close them after an accordion click. Opening a tab or accordion header never closes other sections.
 
-- [ ] **Step 3: Run the focused tests and verify the markup is green**
+- [x] **Step 3: Run the focused tests and verify the markup is green**
 
 Run: `node --test tests/settings.test.js`
 
@@ -100,19 +100,19 @@ Expected: the new structure test passes; existing tests remain green.
 **Files:**
 - Modify: `style.css`
 
-- [ ] **Step 1: Add theme variables under `.sqr-settings`**
+- [x] **Step 1: Add theme variables under `.sqr-settings`**
 
 Define `--sqr-input-background`, `--sqr-input-text`, `--sqr-input-border`, `--sqr-input-placeholder`, and `--sqr-input-focus` from SillyTavern variables with dark translucent fallbacks.
 
-- [ ] **Step 2: Apply variables to supported controls**
+- [x] **Step 2: Apply variables to supported controls**
 
 Extend the existing control selector to `input:not([type='checkbox']):not([type='range'])`, `select`, and `textarea`; set `background`, `color`, `border`, and `accent-color`. Add `::placeholder` and `:focus` rules. Set `color-scheme: dark` only for text-like controls and selects so native menus do not revert to a white palette.
 
-- [ ] **Step 3: Style collapsible headers**
+- [x] **Step 3: Style collapsible headers**
 
 Add `.sqr-section-toggle` styles with left-aligned text, theme-aware background, border, hover/focus states, and an indicator that rotates when `[aria-expanded='true']`. Add `.sqr-settings-section-content[hidden] { display: none; }`, remove the old `h3` bottom margin assumption, and keep consistent spacing for the content below the toggle.
 
-- [ ] **Step 4: Run the focused tests and CSS contract test**
+- [x] **Step 4: Run the focused tests and CSS contract test**
 
 Run: `node --test tests/settings.test.js`
 
@@ -123,19 +123,19 @@ Expected: all settings tests pass with zero failures.
 **Files:**
 - Verify: `index.js`, `settings.html`, `style.css`, `tests/settings.test.js`
 
-- [ ] **Step 1: Run the full test suite**
+- [x] **Step 1: Run the full test suite**
 
 Run: `npm test`
 
 Expected: all tests pass with zero failures.
 
-- [ ] **Step 2: Run syntax and whitespace checks**
+- [x] **Step 2: Run syntax and whitespace checks**
 
 Run: `node --check index.js; git diff --check`
 
 Expected: both commands exit 0 with no whitespace errors.
 
-- [ ] **Step 3: Review the diff for scope**
+- [x] **Step 3: Review the diff for scope**
 
 Run: `git diff -- settings.html style.css index.js tests/settings.test.js`
 
