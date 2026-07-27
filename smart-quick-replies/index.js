@@ -416,6 +416,10 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
   if (typeof fetchImpl !== 'function') throw new Error('Fetch is unavailable');
   const AbortControllerImpl = dependencies.AbortController ?? globalThis.AbortController;
   const controller = AbortControllerImpl ? new AbortControllerImpl() : null;
+  const externalSignal = dependencies.signal;
+  if (externalSignal?.aborted) throw createAbortError('API request was cancelled');
+  const abortFromOutside = () => controller?.abort();
+  externalSignal?.addEventListener?.('abort', abortFromOutside, { once: true });
   const timeoutMs = Math.max(0, Number(config.timeoutMs ?? 30000));
   const setTimer = dependencies.setTimeout ?? globalThis.setTimeout;
   const clearTimer = dependencies.clearTimeout ?? globalThis.clearTimeout;
@@ -426,7 +430,7 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
       controller.abort();
     }, timeoutMs)
     : null;
-  const request = buildCompletionRequest(config, promptData, controller?.signal);
+  const request = buildCompletionRequest(config, promptData, controller?.signal ?? externalSignal);
   try {
     const payload = await fetchJson(fetchImpl, request.url, request.init);
     return parseProviderResponse(payload, config.type);
@@ -436,6 +440,7 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     throw error instanceof Error ? error : new Error('API request failed');
   } finally {
     if (timer !== null && typeof clearTimer === 'function') clearTimer(timer);
+    externalSignal?.removeEventListener?.('abort', abortFromOutside);
   }
 }
 
@@ -535,4 +540,412 @@ export function renderSettings(container, settings = {}, handlers = {}) {
   });
 
   return () => listeners.splice(0).forEach(remove => remove());
+}
+
+export function createPositionStore(storage, key = 'smart-quick-replies.position') {
+  const target = storage ?? globalThis.localStorage;
+  return {
+    read() {
+      try {
+        const value = JSON.parse(target?.getItem?.(key) ?? 'null');
+        return Number.isFinite(Number(value?.left)) && Number.isFinite(Number(value?.top))
+          ? { left: Number(value.left), top: Number(value.top) }
+          : null;
+      } catch {
+        return null;
+      }
+    },
+    write(position) {
+      if (!Number.isFinite(Number(position?.left)) || !Number.isFinite(Number(position?.top))) return;
+      try {
+        target?.setItem?.(key, JSON.stringify({ left: Number(position.left), top: Number(position.top) }));
+      } catch {
+        // Storage can be unavailable in private browsing or sandboxed frames.
+      }
+    },
+    clear() {
+      try {
+        target?.removeItem?.(key);
+      } catch {
+        // Ignore unavailable storage during a reset.
+      }
+    },
+  };
+}
+
+export function createRequestCoordinator(AbortControllerImpl = globalThis.AbortController) {
+  let sequence = 0;
+  let active = null;
+  return {
+    begin() {
+      if (active?.controller) active.controller.abort();
+      const id = ++sequence;
+      const controller = typeof AbortControllerImpl === 'function' ? new AbortControllerImpl() : null;
+      active = { id, controller };
+      return { id, controller, signal: controller?.signal };
+    },
+    isCurrent(id) {
+      return active?.id === id;
+    },
+    cancel() {
+      if (active?.controller) active.controller.abort();
+      active = null;
+    },
+    finish(id) {
+      if (active?.id === id) active = null;
+    },
+  };
+}
+
+export function createPanel(documentImpl, callbacks = {}) {
+  if (!documentImpl?.createElement) throw new Error('A browser document is required');
+  const element = documentImpl.createElement('div');
+  element.id = 'sqr-panel';
+  element.className = 'sqr-panel';
+  element.hidden = true;
+  element.setAttribute('role', 'region');
+  element.setAttribute('aria-label', '智能快捷回复建议');
+
+  const dragHandle = documentImpl.createElement('div');
+  dragHandle.className = 'sqr-drag-handle';
+  dragHandle.textContent = '⋮⋮';
+  dragHandle.title = '拖动面板';
+  dragHandle.setAttribute('aria-label', '拖动面板');
+  element.appendChild(dragHandle);
+
+  const candidates = documentImpl.createElement('div');
+  candidates.className = 'sqr-candidates';
+  element.appendChild(candidates);
+
+  const status = documentImpl.createElement('span');
+  status.className = 'sqr-panel-status';
+  status.hidden = true;
+  element.appendChild(status);
+
+  const refresh = documentImpl.createElement('button');
+  refresh.type = 'button';
+  refresh.className = 'sqr-refresh';
+  refresh.textContent = '🔄';
+  refresh.title = '刷新回复建议';
+  refresh.setAttribute('aria-label', '刷新回复建议');
+  element.appendChild(refresh);
+
+  const buttons = Array.from({ length: 4 }, () => {
+    const button = documentImpl.createElement('button');
+    button.type = 'button';
+    button.className = 'sqr-candidate';
+    button.hidden = true;
+    candidates.appendChild(button);
+    return button;
+  });
+  const listeners = [];
+  const listen = (target, event, handler, options) => {
+    target.addEventListener(event, handler, options);
+    listeners.push(() => target.removeEventListener(event, handler, options));
+  };
+  let position = null;
+  let dragState = null;
+
+  const hide = () => {
+    element.hidden = true;
+    element.style.display = 'none';
+  };
+  const show = options => {
+    if (options?.position) setPosition(options.position);
+    element.hidden = false;
+    element.style.display = 'flex';
+  };
+  const setPosition = next => {
+    if (!Number.isFinite(Number(next?.left)) || !Number.isFinite(Number(next?.top))) return;
+    position = { left: Number(next.left), top: Number(next.top) };
+    element.style.left = `${position.left}px`;
+    element.style.top = `${position.top}px`;
+  };
+  const setCandidates = values => {
+    const list = Array.isArray(values) ? values : [];
+    buttons.forEach((button, index) => {
+      const value = String(list[index] ?? '').trim();
+      button.textContent = value;
+      button.title = value;
+      button.hidden = !value;
+    });
+    status.hidden = true;
+    status.className = 'sqr-panel-status';
+    status.textContent = '';
+    candidates.hidden = false;
+  };
+  const setLoading = loading => {
+    element.classList.toggle('sqr-loading', Boolean(loading));
+    refresh.disabled = Boolean(loading);
+    buttons.forEach(button => { button.disabled = Boolean(loading); });
+    if (loading) {
+      status.className = 'sqr-panel-status';
+      status.hidden = false;
+      status.textContent = '正在生成…';
+    } else if (status.textContent === '正在生成…') {
+      status.hidden = true;
+      status.textContent = '';
+    }
+  };
+  const setError = message => {
+    element.classList.remove('sqr-loading');
+    refresh.disabled = false;
+    buttons.forEach(button => { button.disabled = false; button.hidden = true; });
+    candidates.hidden = true;
+    status.hidden = false;
+    status.className = 'sqr-panel-status sqr-error';
+    status.textContent = String(message || '生成失败，请检查 API 配置');
+  };
+
+  buttons.forEach(button => listen(button, 'click', () => {
+    const value = button.textContent.trim();
+    if (!value) return;
+    const input = documentImpl.querySelector('#send_textarea');
+    if (input) {
+      input.value = value;
+      const EventImpl = documentImpl.defaultView?.Event ?? globalThis.Event;
+      if (typeof EventImpl === 'function') input.dispatchEvent(new EventImpl('input', { bubbles: true }));
+      input.focus?.();
+    }
+    callbacks.onCandidate?.(value);
+    hide();
+  }));
+  listen(refresh, 'click', () => callbacks.onRefresh?.());
+
+  const move = event => {
+    if (!dragState) return;
+    setPosition({ left: dragState.left + event.clientX - dragState.x, top: dragState.top + event.clientY - dragState.y });
+    callbacks.onMove?.(position);
+  };
+  const endDrag = () => {
+    if (!dragState) return;
+    dragState = null;
+    documentImpl.removeEventListener('pointermove', move);
+    documentImpl.removeEventListener('pointerup', endDrag);
+  };
+  listen(dragHandle, 'pointerdown', event => {
+    event.preventDefault();
+    const rect = element.getBoundingClientRect();
+    dragState = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
+    documentImpl.addEventListener('pointermove', move);
+    documentImpl.addEventListener('pointerup', endDrag);
+  });
+
+  documentImpl.body?.appendChild(element);
+  return {
+    element,
+    show,
+    hide,
+    setCandidates,
+    setLoading,
+    setError,
+    setPosition,
+    getPosition: () => position,
+    isVisible: () => !element.hidden,
+    destroy() {
+      endDrag();
+      listeners.splice(0).forEach(remove => remove());
+      element.remove?.();
+    },
+  };
+}
+
+const DEFAULT_EVENT_TYPES = Object.freeze({
+  GENERATION_STARTED: 'GENERATION_STARTED',
+  GENERATION_STOPPED: 'GENERATION_STOPPED',
+  CHARACTER_MESSAGE_RENDERED: 'CHARACTER_MESSAGE_RENDERED',
+  MESSAGE_SENT: 'MESSAGE_SENT',
+  CHAT_CHANGED: 'CHAT_CHANGED',
+  CHAT_DELETED: 'CHAT_DELETED',
+  CHAT_CREATED: 'CHAT_CREATED',
+});
+
+const resolveEventType = (context, name, windowImpl) => context.eventTypes?.[name] ?? windowImpl?.event_types?.[name] ?? DEFAULT_EVENT_TYPES[name];
+
+const subscribeEvent = (source, eventName, handler) => {
+  if (!source || !eventName) return () => {};
+  if (typeof source.on === 'function') {
+    source.on(eventName, handler);
+    return () => source.off?.(eventName, handler) ?? source.removeListener?.(eventName, handler);
+  }
+  if (typeof source.addEventListener === 'function') {
+    source.addEventListener(eventName, handler);
+    return () => source.removeEventListener?.(eventName, handler);
+  }
+  return () => {};
+};
+
+export function bootstrap(context = {}) {
+  const documentImpl = context.document ?? globalThis.document;
+  const windowImpl = context.window ?? globalThis.window;
+  if (!documentImpl?.querySelector) return () => {};
+  const settings = mergeSettings(context.settings ?? context.extensionSettings?.smartQuickReplies ?? {});
+  const fetchImpl = context.fetch ?? globalThis.fetch;
+  const eventSource = context.eventSource ?? windowImpl?.eventSource;
+  const eventTypes = context.eventTypes ?? windowImpl?.event_types ?? DEFAULT_EVENT_TYPES;
+  const storage = context.storage ?? windowImpl?.localStorage;
+  const positionStore = createPositionStore(storage, 'smart-quick-replies.position');
+  const coordinator = createRequestCoordinator(context.AbortController ?? windowImpl?.AbortController ?? globalThis.AbortController);
+  const panel = createPanel(documentImpl, {
+    onMove: position => {
+      const rect = panel.element.getBoundingClientRect();
+      const viewport = { width: windowImpl?.innerWidth ?? 0, height: windowImpl?.innerHeight ?? 0 };
+      const safePosition = clampPosition(position, viewport, { width: rect.width, height: rect.height });
+      panel.setPosition(safePosition);
+      positionStore.write(safePosition);
+    },
+    onRefresh: () => requestSuggestions(lastRequestInterrupted),
+  });
+  const cleanups = [];
+  let lastRequestInterrupted = false;
+  let stoppedTimer = null;
+  let generationId = 0;
+  let handledStopId = -1;
+
+  const getLiveContext = () => {
+    if (typeof context.getContext === 'function') return context.getContext() ?? {};
+    if (typeof windowImpl?.SillyTavern?.getContext === 'function') return windowImpl.SillyTavern.getContext() ?? {};
+    return {};
+  };
+  const getSettings = () => context.settings ? mergeSettings(context.settings) : settings;
+  const savePosition = position => positionStore.write(position);
+  const getPanelPosition = () => positionStore.read();
+  const showPanel = () => {
+    const savedPosition = getPanelPosition();
+    panel.show(savedPosition ? { position: savedPosition } : undefined);
+    if (!savedPosition) {
+      const input = documentImpl.querySelector('#send_textarea');
+      const panelRect = panel.element.getBoundingClientRect();
+      const inputRect = input?.getBoundingClientRect?.();
+      if (inputRect) {
+        const defaultPosition = getDefaultPanelPosition(inputRect, { width: panelRect.width, height: panelRect.height }, { width: windowImpl?.innerWidth ?? 0, height: windowImpl?.innerHeight ?? 0 });
+        panel.setPosition(defaultPosition);
+      }
+    }
+  };
+  const resolveApiConfig = currentSettings => {
+    const type = detectApiType(currentSettings.api.url, currentSettings.api.type, currentSettings.api.autoDetect);
+    return { ...currentSettings.api, type, key: currentSettings.api.key ?? currentSettings.apiKey ?? '' };
+  };
+  const requestSuggestions = async (interrupted = false) => {
+    const currentSettings = getSettings();
+    if (currentSettings.triggerMode === 'off') return;
+    lastRequestInterrupted = Boolean(interrupted);
+    const request = coordinator.begin();
+    panel.setCandidates([]);
+    panel.setLoading(true);
+    showPanel();
+    try {
+      const live = getLiveContext();
+      const charName = live.name2 ?? live.character?.name ?? 'Character';
+      const userName = live.name1 ?? 'User';
+      const description = currentSettings.includeCharacterDescription ? String(live.character?.description ?? '').trim() : '';
+      const history = buildHistory(live.chat ?? [], {
+        limit: currentSettings.historyLimit,
+        interrupted,
+        charName,
+        userName,
+      });
+      const apiConfig = resolveApiConfig(currentSettings);
+      const compressed = await compressHistory(history, currentSettings.compression, async (_early, text) => {
+        const summarySettings = currentSettings.compression;
+        return requestCompletion({
+          ...apiConfig,
+          type: detectApiType(summarySettings.summaryApiUrl || apiConfig.url, summarySettings.summaryApiType || apiConfig.type, Boolean(summarySettings.summaryApiType)),
+          url: summarySettings.summaryApiUrl || apiConfig.url,
+          key: summarySettings.summaryApiKey || apiConfig.key,
+          model: summarySettings.summaryModel || apiConfig.model,
+          maxTokens: Math.min(apiConfig.maxTokens, 256),
+        }, {
+          system: 'Summarize the early conversation history accurately and concisely for a reply suggestion assistant.',
+          messages: [{ role: 'user', content: text }],
+        }, { fetch: fetchImpl, signal: request.signal });
+      });
+      if (!coordinator.isCurrent(request.id)) return;
+      const promptTemplate = description ? `Character description:\n${description}\n\n${currentSettings.systemPrompt}` : currentSettings.systemPrompt;
+      const promptData = buildPromptMessages(promptTemplate, compressed, { char: charName, user: userName, charDescription: description });
+      const raw = await requestCompletion(apiConfig, promptData, {
+        fetch: fetchImpl,
+        signal: request.signal,
+        AbortController: context.AbortController ?? windowImpl?.AbortController ?? globalThis.AbortController,
+      });
+      if (!coordinator.isCurrent(request.id)) return;
+      panel.setCandidates(parseCandidateArray(raw));
+      panel.setLoading(false);
+      showPanel();
+    } catch (error) {
+      if (!coordinator.isCurrent(request.id)) return;
+      panel.setError(error?.name === 'AbortError' ? '请求已取消' : '生成失败，请检查 API 配置');
+      showPanel();
+    } finally {
+      coordinator.finish(request.id);
+    }
+  };
+
+  const manualButton = documentImpl.createElement('button');
+  manualButton.id = 'sqr-manual-trigger';
+  manualButton.type = 'button';
+  manualButton.className = 'menu_button';
+  manualButton.textContent = '回复建议';
+  manualButton.title = '生成快捷回复建议';
+  const sendButton = documentImpl.querySelector('#send_but');
+  const sendForm = documentImpl.querySelector('#send_form');
+  (sendButton?.parentElement ?? sendForm ?? documentImpl.body)?.appendChild(manualButton);
+  cleanups.push(() => manualButton.remove?.());
+  cleanups.push(() => panel.destroy());
+  const manualClick = () => requestSuggestions(false);
+  manualButton.addEventListener('click', manualClick);
+  cleanups.push(() => manualButton.removeEventListener('click', manualClick));
+
+  const eventHandler = (name, handler) => cleanups.push(subscribeEvent(eventSource, resolveEventType(context, name, windowImpl), handler));
+  eventHandler('GENERATION_STARTED', () => {
+    generationId += 1;
+    handledStopId = -1;
+    coordinator.cancel();
+    panel.hide();
+  });
+  eventHandler('CHARACTER_MESSAGE_RENDERED', () => {
+    const currentSettings = getSettings();
+    if (currentSettings.triggerMode === 'auto') requestSuggestions(false);
+  });
+  eventHandler('GENERATION_STOPPED', () => {
+    const currentSettings = getSettings();
+    if (currentSettings.triggerMode !== 'auto' || !currentSettings.interruptedAutoGenerate || handledStopId === generationId) return;
+    handledStopId = generationId;
+    if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
+    stoppedTimer = (context.setTimeout ?? globalThis.setTimeout)(() => {
+      const live = getLiveContext();
+      const last = live.chat?.at?.(-1);
+      if (last && !last.is_user) requestSuggestions(true);
+    }, 100);
+  });
+  for (const name of ['CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_CREATED']) eventHandler(name, () => { coordinator.cancel(); panel.hide(); });
+  eventHandler('MESSAGE_SENT', () => { if (getSettings().dismissAfterSend) panel.hide(); });
+
+  const textarea = documentImpl.querySelector('#send_textarea');
+  const hideAfterSend = event => {
+    if (event.key === 'Enter' && !event.shiftKey && getSettings().dismissAfterSend) panel.hide();
+  };
+  textarea?.addEventListener('keydown', hideAfterSend);
+  cleanups.push(() => textarea?.removeEventListener('keydown', hideAfterSend));
+  const sendClick = () => { if (getSettings().dismissAfterSend) panel.hide(); };
+  sendButton?.addEventListener('click', sendClick);
+  cleanups.push(() => sendButton?.removeEventListener('click', sendClick));
+  const keydown = event => {
+    if (event.key === 'Escape' && getSettings().escDismiss) panel.hide();
+  };
+  documentImpl.addEventListener('keydown', keydown);
+  cleanups.push(() => documentImpl.removeEventListener('keydown', keydown));
+  const outsideClick = event => {
+    if (!getSettings().outsideClickDismiss || !panel.isVisible()) return;
+    if (!panel.element.contains(event.target) && event.target !== manualButton) panel.hide();
+  };
+  documentImpl.addEventListener('click', outsideClick, true);
+  cleanups.push(() => documentImpl.removeEventListener('click', outsideClick, true));
+
+  return () => {
+    coordinator.cancel();
+    if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
+    cleanups.splice(0).forEach(cleanup => cleanup());
+  };
 }

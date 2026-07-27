@@ -8,6 +8,8 @@ import {
   migrateSettings,
   clampPosition,
   getDefaultPanelPosition,
+  createPositionStore,
+  createRequestCoordinator,
 } from '../index.js';
 
 test('default settings use automatic trigger, 20 messages, compression, and four candidates', () => {
@@ -48,4 +50,24 @@ test('settings markup contains all required sections and controls', () => {
   for (const id of ['sqr-general', 'sqr-api', 'sqr-prompt', 'sqr-context', 'sqr-appearance', 'sqr-trigger-mode', 'sqr-api-type', 'sqr-api-url', 'sqr-api-key', 'sqr-model', 'sqr-fetch-models', 'sqr-system-prompt', 'sqr-reset-prompt', 'sqr-reset-position', 'sqr-history-limit', 'sqr-compression-strategy']) {
     assert.match(html, new RegExp('id=["\\\']' + id + '["\\\']'));
   }
+});
+
+test('position store persists, reads, and clears JSON coordinates', () => {
+  const values = new Map();
+  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
+  const store = createPositionStore(storage, 'sqr-position');
+  store.write({ left: 10, top: 20 });
+  assert.deepEqual(store.read(), { left: 10, top: 20 });
+  store.clear();
+  assert.equal(store.read(), null);
+});
+
+test('request coordinator makes only the newest request current', () => {
+  const coordinator = createRequestCoordinator();
+  const first = coordinator.begin();
+  const second = coordinator.begin();
+  assert.equal(coordinator.isCurrent(first.id), false);
+  assert.equal(coordinator.isCurrent(second.id), true);
+  coordinator.cancel();
+  assert.equal(coordinator.isCurrent(second.id), false);
 });
