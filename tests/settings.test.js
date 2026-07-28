@@ -20,6 +20,8 @@ import {
   shouldSuggestOnCharacterRendered,
   decideAutoSuggestionTrigger,
   shouldScheduleAfterMessageReceived,
+  getLatestCharacterMessageKey,
+  shouldDismissAfterMessageSent,
   shouldShowRequestError,
   getRequestErrorMessage,
 } from '../index.js';
@@ -314,6 +316,22 @@ test('message receipt can provide a completed-character auto-trigger fallback', 
   assert.equal(shouldScheduleAfterMessageReceived({ triggerMode: 'auto' }, { generationActive: false, hasCharacterMessage: true }), true);
   assert.equal(shouldScheduleAfterMessageReceived({ triggerMode: 'auto' }, { generationActive: true, hasCharacterMessage: true }), false);
   assert.equal(shouldScheduleAfterMessageReceived({ triggerMode: 'manual' }, { generationActive: false, hasCharacterMessage: true }), false);
+});
+
+test('automatic suggestion deduplication keys the latest character message', () => {
+  const chat = [
+    { is_user: true, mes: 'Hi' },
+    { is_user: false, mes: 'Hello' },
+  ];
+  assert.equal(getLatestCharacterMessageKey(chat), '1:Hello');
+  assert.equal(getLatestCharacterMessageKey([...chat, { is_user: true, mes: 'Next' }]), '');
+  assert.notEqual(getLatestCharacterMessageKey([...chat, { is_user: false, mes: 'Hello again' }]), getLatestCharacterMessageKey(chat));
+});
+
+test('message sent dismissal ignores events while the latest message is from the character', () => {
+  assert.equal(shouldDismissAfterMessageSent({ dismissAfterSend: true }, { latestMessageIsUser: true }), true);
+  assert.equal(shouldDismissAfterMessageSent({ dismissAfterSend: true }, { latestMessageIsUser: false }), false);
+  assert.equal(shouldDismissAfterMessageSent({ dismissAfterSend: false }, { latestMessageIsUser: true }), false);
 });
 
 test('intentional aborts do not become visible request errors', () => {

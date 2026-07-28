@@ -1245,6 +1245,19 @@ export function shouldScheduleAfterMessageReceived(settings = {}, state = {}) {
   return settings.triggerMode === 'auto' && !state.generationActive && Boolean(state.hasCharacterMessage);
 }
 
+export function getLatestCharacterMessageKey(chat = []) {
+  const messages = Array.isArray(chat) ? chat : [];
+  const index = messages.length - 1;
+  const message = messages[index];
+  if (!message || message.is_user || message.isUser || message.role === 'user' || message.is_system || message.role === 'system') return '';
+  const content = String(message.mes ?? message.content ?? '').trim();
+  return content ? `${index}:${content}` : '';
+}
+
+export function shouldDismissAfterMessageSent(settings = {}, state = {}) {
+  return Boolean(settings.dismissAfterSend) && state.latestMessageIsUser !== false;
+}
+
 export function shouldShowRequestError(error = {}) {
   return !(error?.name === 'AbortError' && error?.message !== 'API request timed out');
 }
@@ -1301,10 +1314,19 @@ export function bootstrap(context = {}) {
     },
     onRefresh: () => requestSuggestions(lastRequestInterrupted),
   });
-  const cancelSuggestionRequest = hide => resetPanelAfterCancellation(panel, coordinator.cancel(), hide);
+  const cancelSuggestionRequest = (hide, reason = 'request-cancelled') => {
+    const cancelled = coordinator.cancel();
+    const hasCandidates = typeof panel.hasCandidates === 'function' ? panel.hasCandidates() : true;
+    const shouldHide = Boolean(cancelled) && (hide || !hasCandidates);
+    const result = resetPanelAfterCancellation(panel, cancelled, hide);
+    if (shouldHide) recordDebug({ operation: 'panel', phase: 'hide', reason });
+    return result;
+  };
   const cleanups = [];
   let lastRequestInterrupted = false;
   let stoppedTimer = null;
+  let scheduledAutoSuggestionKey = '';
+  let autoSuggestionKey = '';
   let generationId = 0;
   let handledStopId = -1;
   let characterRenderedGenerationId = -1;
@@ -1320,6 +1342,11 @@ export function bootstrap(context = {}) {
     debugEntries.push({ timestamp: new Date().toISOString(), ...entry });
     if (debugEntries.length > 30) debugEntries.splice(0, debugEntries.length - 30);
     renderDebug();
+  };
+  const hidePanel = reason => {
+    if (!panel.isVisible()) return;
+    recordDebug({ operation: 'panel', phase: 'hide', reason });
+    panel.hide();
   };
   const clearDebug = () => {
     debugEntries.splice(0);
@@ -1453,10 +1480,15 @@ export function bootstrap(context = {}) {
 
   const scheduleAutoSuggestion = interrupted => {
     if (handledStopId === generationId) return;
+    const messageKey = getLatestCharacterMessageKey(getLiveContext().chat);
+    if (!messageKey || scheduledAutoSuggestionKey === messageKey || autoSuggestionKey === messageKey) return;
+    scheduledAutoSuggestionKey = messageKey;
     if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
     stoppedTimer = (context.setTimeout ?? globalThis.setTimeout)(() => {
       stoppedTimer = null;
+      scheduledAutoSuggestionKey = '';
       if (handledStopId === generationId) return;
+      autoSuggestionKey = messageKey;
       handledStopId = generationId;
       requestSuggestions(interrupted);
     }, 100);
@@ -1483,7 +1515,7 @@ export function bootstrap(context = {}) {
     generationId += 1;
     handledStopId = -1;
     characterRenderedGenerationId = -1;
-    cancelSuggestionRequest(false);
+    cancelSuggestionRequest(false, 'generation-started');
   });
   eventHandler('CHARACTER_MESSAGE_RENDERED', () => {
     characterRenderedGenerationId = generationId;
@@ -1524,32 +1556,42 @@ export function bootstrap(context = {}) {
       scheduleAutoSuggestion(false);
     }
   });
-  for (const name of ['CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_CREATED']) eventHandler(name, () => cancelSuggestionRequest(true));
-  eventHandler('MESSAGE_SENT', () => { if (getSettings().dismissAfterSend) panel.hide(); });
+  for (const name of ['CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_CREATED']) eventHandler(name, () => {
+    scheduledAutoSuggestionKey = '';
+    autoSuggestionKey = '';
+    cancelSuggestionRequest(true, name.toLowerCase());
+  });
+  eventHandler('MESSAGE_SENT', () => {
+    const last = getLiveContext().chat?.at?.(-1);
+    const latestMessageIsUser = last
+      ? Boolean(last.is_user ?? last.isUser ?? last.role === 'user')
+      : undefined;
+    if (shouldDismissAfterMessageSent(getSettings(), { latestMessageIsUser })) hidePanel('message-sent');
+  });
 
   const textarea = documentImpl.querySelector('#send_textarea');
   const hideAfterSend = event => {
-    if (event.key === 'Enter' && !event.shiftKey && getSettings().dismissAfterSend) panel.hide();
+    if (event.key === 'Enter' && !event.shiftKey && getSettings().dismissAfterSend) hidePanel('enter-send');
   };
   textarea?.addEventListener('keydown', hideAfterSend);
   cleanups.push(() => textarea?.removeEventListener('keydown', hideAfterSend));
-  const sendClick = () => { if (getSettings().dismissAfterSend) panel.hide(); };
+  const sendClick = () => { if (getSettings().dismissAfterSend) hidePanel('send-button'); };
   sendButton?.addEventListener('click', sendClick);
   cleanups.push(() => sendButton?.removeEventListener('click', sendClick));
   const keydown = event => {
-    if (event.key === 'Escape' && getSettings().escDismiss) panel.hide();
+    if (event.key === 'Escape' && getSettings().escDismiss) hidePanel('escape');
   };
   documentImpl.addEventListener('keydown', keydown);
   cleanups.push(() => documentImpl.removeEventListener('keydown', keydown));
   const outsideClick = event => {
     if (!getSettings().outsideClickDismiss || !panel.isVisible()) return;
-    if (!panel.element.contains(event.target) && event.target !== manualButton) panel.hide();
+    if (!panel.element.contains(event.target) && event.target !== manualButton) hidePanel('outside-click');
   };
   documentImpl.addEventListener('click', outsideClick, true);
   cleanups.push(() => documentImpl.removeEventListener('click', outsideClick, true));
 
   return () => {
-    cancelSuggestionRequest(false);
+    cancelSuggestionRequest(false, 'extension-cleanup');
     if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
     cleanups.splice(0).forEach(cleanup => cleanup());
   };
