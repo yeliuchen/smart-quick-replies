@@ -1219,6 +1219,8 @@ export function createPanel(documentImpl, callbacks = {}) {
   documentImpl.body?.appendChild(element);
   return {
     element,
+    glassRoot: candidates,
+    glassElements: buttons,
     show,
     hide,
     setCandidates,
@@ -1237,13 +1239,25 @@ export function createPanel(documentImpl, callbacks = {}) {
 
 const LIQUID_GLASS_CDN = 'https://cdn.jsdelivr.net/npm/@ybouane/liquidglass/dist/index.js';
 
-export async function initLiquidGlass(documentImpl, windowImpl, glassElement) {
-  if (!documentImpl?.body || !windowImpl || !glassElement) return null;
+export async function initLiquidGlass(documentImpl, windowImpl, root, glassElements, config = {}) {
+  if (!documentImpl?.body || !windowImpl || !root || !glassElements?.length) return null;
 
   // LiquidGlass is loaded only in the browser so Node-based extension tests do
   // not need to resolve a remote HTTPS module.
   const { LiquidGlass } = await import(LIQUID_GLASS_CDN);
-  glassElement.dataset.config = JSON.stringify({
+  glassElements.forEach(glassElement => {
+    glassElement.dataset.config = JSON.stringify(config);
+  });
+
+  const instance = await LiquidGlass.init({
+    root,
+    glassElements,
+  });
+  glassElements.forEach(glassElement => glassElement.classList.add('sqr-liquidglass-ready'));
+  return instance;
+}
+
+const PANEL_GLASS_CONFIG = {
     blurAmount: 0.14,
     refraction: 0.58,
     chromAberration: 0.025,
@@ -1256,15 +1270,26 @@ export async function initLiquidGlass(documentImpl, windowImpl, glassElement) {
     shadowOpacity: 0.2,
     shadowSpread: 8,
     shadowOffsetY: 2,
-  });
+};
 
-  const instance = await LiquidGlass.init({
-    root: documentImpl.body,
-    glassElements: [glassElement],
-  });
-  glassElement.classList.add('sqr-liquidglass-ready');
-  return instance;
-}
+const BUTTON_GLASS_CONFIG = {
+  blurAmount: 0.18,
+  refraction: 0.52,
+  chromAberration: 0.02,
+  edgeHighlight: 0.04,
+  specular: 0.08,
+  fresnel: 0.55,
+  cornerRadius: 9,
+  zRadius: 16,
+  opacity: 0.78,
+  saturation: -0.12,
+  tintStrength: 0.42,
+  brightness: -0.1,
+  shadowOpacity: 0.24,
+  shadowSpread: 6,
+  shadowOffsetY: 2,
+  button: true,
+};
 
 const DEFAULT_EVENT_TYPES = Object.freeze({
   GENERATION_STARTED: 'GENERATION_STARTED',
@@ -1337,6 +1362,7 @@ export function bootstrap(context = {}) {
     liquidGlassInstance?.destroy?.();
     liquidGlassInstance = null;
     panel?.element?.classList.remove('sqr-liquidglass-ready');
+    panel?.glassElements?.forEach(element => element.classList.remove('sqr-liquidglass-ready'));
   };
   let panel;
   panel = createPanel(documentImpl, {
@@ -1358,10 +1384,17 @@ export function bootstrap(context = {}) {
     const start = () => {
       liquidGlassScheduleId = null;
       if (!panel.isVisible()) return;
-      liquidGlassInitPromise = initLiquidGlass(documentImpl, windowImpl, panel.element)
-        .then(instance => {
-          if (!panel.isVisible()) instance?.destroy?.();
-          else liquidGlassInstance = instance;
+      liquidGlassInitPromise = Promise.allSettled([
+        initLiquidGlass(documentImpl, windowImpl, documentImpl.body, [panel.element], PANEL_GLASS_CONFIG),
+        initLiquidGlass(documentImpl, windowImpl, panel.glassRoot, panel.glassElements, BUTTON_GLASS_CONFIG),
+      ])
+        .then(results => {
+          const instances = results
+            .filter(result => result.status === 'fulfilled' && result.value)
+            .map(result => result.value);
+          const complete = results.every(result => result.status === 'fulfilled');
+          if (!complete || !panel.isVisible()) instances.forEach(instance => instance.destroy?.());
+          else liquidGlassInstance = { destroy: () => instances.forEach(instance => instance.destroy?.()) };
         })
         .catch(() => {
           // Keep the existing CSS glass styling when WebGL/CDN loading is unavailable.
