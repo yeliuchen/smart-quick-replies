@@ -1066,14 +1066,12 @@ export function renderCandidateButton(button, item, documentImpl = button?.owner
   if (!icon || !text) {
     button.replaceChildren();
     icon = createLucideIcon(documentImpl, 'trending-up', { className: 'sqr-candidate-icon' });
-    icon.hidden = true;
     text = documentImpl.createElement('span');
     text.className = 'sqr-candidate-text';
     button.append(icon, text);
   }
   const value = String(typeof item === 'object' ? item?.text ?? item?.reply ?? '' : item ?? '').trim();
   const progression = typeof item === 'object' && Boolean(item?.progression);
-  icon.hidden = !progression;
   text.textContent = value;
   button.classList.toggle('sqr-progression', progression);
   button.title = progression ? `推进剧情：${value}` : value;
@@ -1100,7 +1098,8 @@ export function createPanel(documentImpl, callbacks = {}) {
   surface.setAttribute('aria-hidden', 'true');
   element.appendChild(surface);
 
-  const dragHandle = documentImpl.createElement('div');
+  const dragHandle = documentImpl.createElement('button');
+  dragHandle.type = 'button';
   dragHandle.className = 'sqr-drag-handle';
   dragHandle.appendChild(createLucideIcon(documentImpl, 'grip-vertical', { className: 'sqr-icon' }));
   dragHandle.title = '拖动面板';
@@ -1159,6 +1158,20 @@ export function createPanel(documentImpl, callbacks = {}) {
     element.style.left = `${position.left}px`;
     element.style.top = `${position.top}px`;
   };
+  listen(dragHandle, 'keydown', event => {
+    const delta = {
+      ArrowLeft: { left: -8, top: 0 },
+      ArrowRight: { left: 8, top: 0 },
+      ArrowUp: { left: 0, top: -8 },
+      ArrowDown: { left: 0, top: 8 },
+    }[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    const rect = element.getBoundingClientRect();
+    const current = position ?? { left: rect.left, top: rect.top };
+    setPosition({ left: current.left + delta.left, top: current.top + delta.top });
+    callbacks.onMove?.(position);
+  });
   const setCandidates = values => {
     const list = Array.isArray(values) ? values : [];
     buttons.forEach((button, index) => {

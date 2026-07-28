@@ -140,6 +140,12 @@ test('settings use compact root heading and inline model and prompt toolbars', (
   assert.match(html, /class="sqr-prompt-toolbar"[\s\S]*系统提示词[\s\S]*id="sqr-reset-prompt"/);
 });
 
+test('button color setting is labeled as a LiquidGlass fallback', () => {
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.match(html, /<span>备用按钮颜色（玻璃无法加载时）<\/span>\s*<input id="sqr-button-color"/);
+  assert.doesNotMatch(html, /<span>按钮颜色<\/span>\s*<input id="sqr-button-color"/);
+});
+
 test('settings layout contracts define desktop and narrow-screen toolbar rules', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   assert.match(css, /\.sqr-settings\s*\{[\s\S]*border:\s*0[;\s][\s\S]*padding:\s*0[;\s]/);
@@ -171,10 +177,43 @@ test('settings CSS gives form controls theme-aware colors', () => {
 
 test('suggestion buttons use multiline clamping instead of single-line ellipsis', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
-  assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*-webkit-line-clamp:\s*3/);
-  assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*white-space:\s*normal/);
-  assert.doesNotMatch(css, /#sqr-panel \.sqr-candidate,[\s\S]*text-overflow:\s*ellipsis/);
-  assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*min-height:\s*0/);
+  const candidateRule = css.match(/#sqr-panel \.sqr-candidate\s*\{([^}]*)\}/)?.[1] ?? '';
+  const textRule = css.match(/#sqr-panel \.sqr-candidate-text\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  assert.match(candidateRule, /display:\s*flex/);
+  assert.doesNotMatch(candidateRule, /-webkit-box|-webkit-line-clamp|white-space|overflow-wrap/);
+  assert.match(candidateRule, /min-height:\s*0/);
+  assert.match(textRule, /display:\s*-webkit-box/);
+  assert.match(textRule, /-webkit-box-orient:\s*vertical/);
+  assert.match(textRule, /-webkit-line-clamp:\s*3/);
+  assert.match(textRule, /overflow:\s*hidden/);
+  assert.match(textRule, /overflow-wrap:\s*anywhere/);
+  assert.match(textRule, /white-space:\s*normal/);
+  assert.doesNotMatch(textRule, /text-overflow:\s*ellipsis/);
+});
+
+test('candidate icons stay horizontal, hidden by default, and fixed in size', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  const iconRule = css.match(/#sqr-panel \.sqr-candidate-icon\s*\{([^}]*)\}/)?.[1] ?? '';
+  const progressionRule = css.match(/#sqr-panel \.sqr-candidate\.sqr-progression \.sqr-candidate-icon\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  assert.match(iconRule, /display:\s*none/);
+  assert.match(iconRule, /flex:\s*0\s+0\s+auto/);
+  assert.match(iconRule, /height:\s*1em/);
+  assert.match(iconRule, /width:\s*1em/);
+  assert.match(progressionRule, /display:\s*inline-block/);
+});
+
+test('fallback button background consumes user color without tinting ready glass', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  const panelRule = css.match(/#sqr-panel\s*\{([^}]*)\}/)?.[1] ?? '';
+  const fallbackControls = css.match(/#sqr-panel \.sqr-candidate,\s*#sqr-panel \.sqr-refresh\s*\{([^}]*)\}/)?.[1] ?? '';
+  const readyControls = css.match(/#sqr-panel\.sqr-liquidglass-ready \.sqr-candidate,\s*#sqr-panel\.sqr-liquidglass-ready \.sqr-refresh\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  assert.match(panelRule, /--sqr-control-background:\s*color-mix\([^;]*rgba\(24,\s*26,\s*32,[^)]+\)\s+88%,\s*var\(--sqr-button-color\)\s+12%\)/);
+  assert.match(fallbackControls, /background:\s*var\(--sqr-control-background\)/);
+  assert.match(readyControls, /background:\s*transparent/);
+  assert.doesNotMatch(readyControls, /sqr-button-color|sqr-control-background|color-mix/);
 });
 
 test('loading state hides empty candidates and centers its status', () => {
@@ -185,8 +224,9 @@ test('loading state hides empty candidates and centers its status', () => {
 
 test('progression candidates style the Lucide marker without a textual arrow', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
-  assert.match(css, /#sqr-panel \.sqr-candidate\.sqr-progression \.sqr-candidate-icon\s*\{[\s\S]*color:\s*var\(--SmartThemeQuoteColor, #75b7ff\)/);
-  assert.match(css, /#sqr-panel \.sqr-candidate\.sqr-progression \.sqr-candidate-icon\s*\{[\s\S]*width:\s*1em/);
+  const progressionRule = css.match(/#sqr-panel \.sqr-candidate\.sqr-progression \.sqr-candidate-icon\s*\{([^}]*)\}/)?.[1] ?? '';
+  assert.match(progressionRule, /color:\s*var\(--SmartThemeQuoteColor, #75b7ff\)/);
+  assert.match(progressionRule, /display:\s*inline-block/);
   assert.doesNotMatch(css, /content:\s*'↗'/);
 });
 

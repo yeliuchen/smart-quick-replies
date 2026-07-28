@@ -68,11 +68,11 @@ test('candidate updates preserve the Lucide progression icon', () => {
   const value = renderCandidateButton(button, { text: '一起去看看吧', progression: true }, documentImpl);
   assert.equal(value, '一起去看看吧');
   assert.equal(button.querySelector('.sqr-candidate-text').textContent, '一起去看看吧');
-  assert.equal(button.querySelector('.lucide-trending-up').hidden, false);
+  assert.equal(button.classList.contains('sqr-progression'), true);
 
   renderCandidateButton(button, { text: '那就先休息一下', progression: false }, documentImpl);
   assert.equal(button.querySelector('.sqr-candidate-text').textContent, '那就先休息一下');
-  assert.equal(button.querySelector('.lucide-trending-up').hidden, true);
+  assert.equal(button.classList.contains('sqr-progression'), false);
 });
 
 test('empty candidates hide their button without removing its Lucide children', () => {
