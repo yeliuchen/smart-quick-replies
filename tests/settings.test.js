@@ -24,6 +24,7 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.equal(DEFAULT_SETTINGS.compression.enabled, true);
   assert.equal(DEFAULT_SETTINGS.compression.threshold, 3000);
   assert.equal(DEFAULT_SETTINGS.api.maxTokens, 80);
+  assert.equal(DEFAULT_SETTINGS.api.authMode, 'bearer');
   assert.match(DEFAULT_SYSTEM_PROMPT, /You generate reply suggestions for the USER/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /You are NOT \{\{char\}\}/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /exactly 4 distinct/);
@@ -65,7 +66,7 @@ test('default panel position is directly above the input', () => {
 
 test('settings markup contains all required sections and controls', () => {
   const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
-  for (const id of ['sqr-general', 'sqr-api', 'sqr-prompt', 'sqr-context', 'sqr-appearance', 'sqr-trigger-mode', 'sqr-api-type', 'sqr-api-url', 'sqr-api-key', 'sqr-model', 'sqr-fetch-models', 'sqr-system-prompt', 'sqr-reset-prompt', 'sqr-reset-position', 'sqr-history-limit', 'sqr-compression-strategy']) {
+  for (const id of ['sqr-general', 'sqr-api', 'sqr-prompt', 'sqr-context', 'sqr-appearance', 'sqr-trigger-mode', 'sqr-api-type', 'sqr-api-auth-mode', 'sqr-api-url', 'sqr-api-key', 'sqr-model', 'sqr-fetch-models', 'sqr-system-prompt', 'sqr-reset-prompt', 'sqr-reset-position', 'sqr-history-limit', 'sqr-compression-strategy']) {
     assert.match(html, new RegExp('id=["\\\']' + id + '["\\\']'));
   }
 });
@@ -89,6 +90,7 @@ test('settings use compact root heading and inline model and prompt toolbars', (
   assert.doesNotMatch(html, /<h[1-4][\s>]/i);
   assert.match(html, /id="sqr-button-color"[^>]*data-sqr-setting="appearance\.buttonColor"/);
   assert.match(html, /id="sqr-button-text-color"[^>]*data-sqr-setting="appearance\.buttonTextColor"/);
+  assert.match(html, /<option value="google">Google Gemini/);
   assert.match(html, /data-sqr-color-picker[\s\S]*data-sqr-color-value="#4f8cff"/);
   assert.match(html, /data-sqr-color-picker[\s\S]*data-sqr-color-value="#ffffff"/);
   assert.match(html, /class="sqr-model-toolbar"[\s\S]*id="sqr-model-search"[\s\S]*id="sqr-fetch-models"/);

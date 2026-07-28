@@ -57,6 +57,15 @@
           <option value="openai">OpenAI-compatible</option>
           <option value="anthropic">Anthropic-compatible</option>
           <option value="lmstudio">LM Studio</option>
+          <option value="google">Google Gemini (Native)</option>
+        </select>
+      </label>
+      <label class="sqr-field">
+        <span>兼容接口鉴权方式</span>
+        <select id="sqr-api-auth-mode" data-sqr-setting="api.authMode">
+          <option value="bearer">Bearer Token（默认）</option>
+          <option value="x-api-key">x-api-key</option>
+          <option value="none">无鉴权</option>
         </select>
       </label>
       <label class="sqr-check-field">
@@ -87,6 +96,7 @@
       </div>
     </div>
       <p class="sqr-help">LM Studio 默认可填写 http://localhost:1234/v1，通常不需要 API Key。API Key 仅保存在 SillyTavern Secrets 或明确标注的本地回退位置。</p>
+      <p class="sqr-help sqr-field-wide">OpenAI-compatible 网关如返回 401，请确认 API Key 和鉴权方式；官方 Google Gemini 使用 Google Gemini (Native)，API Key 会通过 x-goog-api-key 发送。</p>
       <div class="sqr-range-grid">
       <label class="sqr-range-field">
         <span>温度 <output data-sqr-output="api.temperature">0.9</output></span>

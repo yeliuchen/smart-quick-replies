@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildCompletionRequest,
   buildModelsRequest,
+  detectApiType,
   parseProviderResponse,
   parseModelList,
   requestCompletion,
@@ -14,6 +15,34 @@ test('OpenAI request uses system messages and bearer authentication', () => {
   assert.equal(request.url, 'http://localhost:1234/v1/chat/completions');
   assert.equal(request.init.headers.Authorization, 'Bearer secret');
   assert.deepEqual(JSON.parse(request.init.body).messages, [{ role: 'system', content: 'system' }, { role: 'user', content: 'hi' }, { role: 'user', content: 'Generate now.' }]);
+});
+
+test('OpenAI-compatible requests support x-api-key and no-auth modes', () => {
+  const xApiKeyRequest = buildCompletionRequest({ type: 'openai', authMode: 'x-api-key', url: 'https://gateway.example/v1', key: 'secret', model: 'gemini' }, { messages: [] });
+  assert.equal(xApiKeyRequest.init.headers['x-api-key'], 'secret');
+  assert.equal(xApiKeyRequest.init.headers.Authorization, undefined);
+
+  const noAuthRequest = buildCompletionRequest({ type: 'openai', authMode: 'none', url: 'http://localhost:1234/v1', key: 'secret', model: 'local' }, { messages: [] });
+  assert.equal(noAuthRequest.init.headers.Authorization, undefined);
+  assert.equal(noAuthRequest.init.headers['x-api-key'], undefined);
+});
+
+test('Google Gemini requests use native contents and x-goog-api-key authentication', () => {
+  const request = buildCompletionRequest({ type: 'google', url: 'https://generativelanguage.googleapis.com/v1beta', key: 'google-secret', model: 'gemini-2.5-flash', temperature: 0.7, maxTokens: 80, topP: 0.9 }, {
+    system: 'You help the user.',
+    messages: [{ role: 'user', content: 'hello' }, { role: 'assistant', content: 'hi' }],
+    generationInstruction: 'Generate four replies.',
+  });
+  assert.equal(request.url, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent');
+  assert.equal(request.init.headers['x-goog-api-key'], 'google-secret');
+  const body = JSON.parse(request.init.body);
+  assert.deepEqual(body.systemInstruction, { parts: [{ text: 'You help the user.' }] });
+  assert.deepEqual(body.contents, [
+    { role: 'user', parts: [{ text: 'hello' }] },
+    { role: 'model', parts: [{ text: 'hi' }] },
+    { role: 'user', parts: [{ text: 'Generate four replies.' }] },
+  ]);
+  assert.deepEqual(body.generationConfig, { temperature: 0.7, topP: 0.9, maxOutputTokens: 80 });
 });
 
 test('Anthropic request uses top-level system and x-api-key', () => {
@@ -32,9 +61,40 @@ test('response and model list parsers support common provider shapes', () => {
   assert.deepEqual(parseModelList({ models: [{ name: 'b' }, { model: 'a' }] }), ['a', 'b']);
 });
 
+test('Google response and model list parsers support native Gemini shapes', () => {
+  assert.equal(parseProviderResponse({ candidates: [{ content: { parts: [{ text: '["a","b","c","d"]' }] } }] }, 'google'), '["a","b","c","d"]');
+  assert.deepEqual(parseModelList({ models: [{ name: 'models/gemini-2.5-flash' }, { name: 'models/gemini-2.0-flash' }] }, 'google'), ['gemini-2.0-flash', 'gemini-2.5-flash']);
+});
+
+test('Google API auto detection recognizes the official endpoint', () => {
+  assert.equal(detectApiType('https://generativelanguage.googleapis.com/v1beta', 'openai', true), 'google');
+});
+
+test('HTTP errors retain status and provide an actionable unauthorized message', async () => {
+  await assert.rejects(
+    requestCompletion({ type: 'openai', url: 'https://gateway.example/v1', key: '', model: 'gemini' }, { messages: [] }, {
+      fetch: async () => ({ ok: false, status: 401, json: async () => ({ error: { message: 'Invalid API key' } }) }),
+    }),
+    error => error.status === 401 && /API Key|鉴权|unauthorized/i.test(error.message),
+  );
+});
+
 test('LM Studio model discovery includes the API v1 fallback', () => {
   const request = buildModelsRequest({ type: 'lmstudio', url: 'http://localhost:1234', key: '' });
   assert.deepEqual(request.fallbackUrls, ['http://localhost:1234/api/v1/models']);
+});
+
+test('Google model discovery uses the native models endpoint', async () => {
+  const calls = [];
+  const models = await requestModels({ type: 'google', url: 'https://generativelanguage.googleapis.com/v1beta', key: 'secret' }, {
+    fetch: async (url, init) => {
+      calls.push({ url, init });
+      return { ok: true, status: 200, json: async () => ({ models: [{ name: 'models/gemini-2.5-flash' }] }) };
+    },
+  });
+  assert.deepEqual(models, ['gemini-2.5-flash']);
+  assert.equal(calls[0].url, 'https://generativelanguage.googleapis.com/v1beta/models');
+  assert.equal(calls[0].init.headers['x-goog-api-key'], 'secret');
 });
 
 test('LM Studio completion explicitly disables reasoning output', () => {

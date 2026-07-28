@@ -31,6 +31,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   api: {
     type: 'openai',
+    authMode: 'bearer',
     autoDetect: true,
     url: 'http://localhost:1234/v1',
     model: '',
@@ -134,6 +135,7 @@ export function getDefaultPanelPosition(inputRect, panelSize, viewport, margin =
 export function detectApiType(url, selectedType = 'openai', autoDetect = true) {
   if (!autoDetect) return selectedType;
   const value = String(url || '').toLowerCase();
+  if (value.includes('generativelanguage.googleapis.com') || value.includes('googleapis.com/v1beta')) return 'google';
   if (value.includes('anthropic') || value.includes('/messages')) return 'anthropic';
   if (value.includes('lmstudio') || value.includes('localhost:1234') || value.includes('127.0.0.1:1234') || value.includes('/api/v1')) return 'lmstudio';
   return 'openai';
@@ -141,13 +143,23 @@ export function detectApiType(url, selectedType = 'openai', autoDetect = true) {
 
 const trimUrl = url => String(url || '').trim().replace(/\/+$/, '');
 
-export function normalizeEndpoint(url, apiType, kind = 'completion') {
+export function normalizeEndpoint(url, apiType, kind = 'completion', model = '') {
   let base = trimUrl(url);
   if (!base) return '';
   if (kind === 'models') {
+    if (apiType === 'google') {
+      if (/\/models$/i.test(base)) return base;
+      if (/\/models\//i.test(base)) base = base.replace(/\/models\/.*$/i, '');
+      return `${base}/models`;
+    }
     if (/\/models$/i.test(base)) return base;
     if (/\/chat\/completions$/i.test(base)) base = base.replace(/\/chat\/completions$/i, '');
     return /\/v1$/i.test(base) ? `${base}/models` : `${base}/v1/models`;
+  }
+  if (apiType === 'google') {
+    if (/:generateContent$/i.test(base)) return base;
+    if (/\/models\//i.test(base)) return `${base}:generateContent`;
+    return `${base}/models/${encodeURIComponent(String(model || '').trim())}:generateContent`;
   }
   if (apiType === 'anthropic') {
     if (/\/messages$/i.test(base)) return base;
@@ -421,27 +433,47 @@ export function buildPromptMessages(systemPrompt, history = { messages: [] }, va
   };
 }
 
-const getApiType = config => String(config?.type || 'openai').toLowerCase() === 'anthropic' ? 'anthropic' : String(config?.type || 'openai').toLowerCase();
+const getApiType = config => String(config?.type || 'openai').toLowerCase();
 
 const getApiKey = config => String(config?.key ?? config?.apiKey ?? '').trim();
 
-const buildProviderHeaders = (config, signal) => {
+const getAuthMode = config => String(config?.authMode || 'bearer').toLowerCase();
+
+const buildProviderHeaders = config => {
   const type = getApiType(config);
   const key = getApiKey(config);
   const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
-  if (signal) headers.signal = signal;
-  if (type === 'anthropic') {
+  if (type === 'google') {
+    if (key) headers['x-goog-api-key'] = key;
+  } else if (type === 'anthropic') {
     headers['anthropic-version'] = '2023-06-01';
     if (key) headers['x-api-key'] = key;
-  } else if (key) {
+  } else if (key && getAuthMode(config) === 'x-api-key') {
+    headers['x-api-key'] = key;
+  } else if (key && getAuthMode(config) !== 'none') {
     headers.Authorization = `Bearer ${key}`;
   }
   return headers;
 };
 
+const toGoogleContents = (messages, generationInstruction) => {
+  const source = [...(Array.isArray(messages) ? messages : []), ...(generationInstruction ? [{ role: 'user', content: generationInstruction }] : [])]
+    .filter(message => message?.role !== 'system' && String(message?.content ?? '').trim())
+    .map(message => ({
+      role: message.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: String(message.content).trim() }],
+    }));
+  return source.reduce((result, message) => {
+    const previous = result.at(-1);
+    if (previous?.role === message.role) previous.parts.push(...message.parts);
+    else result.push(message);
+    return result;
+  }, []);
+};
+
 export function buildCompletionRequest(config = {}, promptData = {}, signal) {
   const type = getApiType(config);
-  const url = normalizeEndpoint(config.url, type, 'completion');
+  const url = normalizeEndpoint(config.url, type, 'completion', config.model);
   const system = String(promptData.system ?? '').trim();
   const historyMessages = Array.isArray(promptData.messages) ? promptData.messages : [];
   const generationInstruction = String(promptData.generationInstruction ?? '').trim();
@@ -452,7 +484,17 @@ export function buildCompletionRequest(config = {}, promptData = {}, signal) {
     temperature: Number(config.temperature ?? 0.9),
     top_p: Number(config.topP ?? config.top_p ?? 0.95),
   };
-  const body = type === 'anthropic'
+  const body = type === 'google'
+    ? {
+      ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+      contents: toGoogleContents(historyMessages, generationInstruction),
+      generationConfig: {
+        temperature: Number(config.temperature ?? 0.9),
+        topP: Number(config.topP ?? config.top_p ?? 0.95),
+        maxOutputTokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
+      },
+    }
+    : type === 'anthropic'
     ? {
       ...common,
       max_tokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
@@ -497,6 +539,13 @@ export function buildModelsRequest(config = {}) {
 export function parseProviderResponse(payload, apiType = 'openai') {
   const type = getApiType({ type: apiType });
   if (typeof payload === 'string') return payload;
+  if (type === 'google') {
+    const parts = payload?.candidates?.[0]?.content?.parts;
+    const text = Array.isArray(parts)
+      ? parts.filter(part => typeof part?.text === 'string').map(part => part.text).join('')
+      : '';
+    if (text) return text;
+  }
   if (type === 'anthropic') {
     const textBlock = Array.isArray(payload?.content)
       ? payload.content.find(block => block?.type === 'text' && typeof block.text === 'string')
@@ -510,7 +559,7 @@ export function parseProviderResponse(payload, apiType = 'openai') {
   throw new Error('API response did not contain text');
 }
 
-export function parseModelList(payload) {
+export function parseModelList(payload, apiType = 'openai') {
   const entries = Array.isArray(payload?.data)
     ? payload.data
     : Array.isArray(payload?.models)
@@ -520,7 +569,7 @@ export function parseModelList(payload) {
         : [];
   const names = entries
     .map(entry => typeof entry === 'string' ? entry : entry?.id ?? entry?.key ?? entry?.name ?? entry?.model)
-    .map(value => String(value ?? '').trim())
+    .map(value => String(value ?? '').trim().replace(apiType === 'google' ? /^models\//i : /^$/, ''))
     .filter(Boolean);
   return [...new Set(names)].sort((left, right) => left.localeCompare(right));
 }
@@ -531,9 +580,38 @@ const createAbortError = message => {
   return error;
 };
 
+export class ProviderHttpError extends Error {
+  constructor(status, detail = '') {
+    const normalizedStatus = Number(status) || 0;
+    const suffix = detail ? `: ${detail}` : '';
+    const message = normalizedStatus === 401
+      ? `API Key 或鉴权方式无效 (401 Unauthorized)${suffix}`
+      : normalizedStatus === 403
+        ? `API 没有访问权限 (403 Forbidden)${suffix}`
+        : normalizedStatus === 404
+          ? `API 接口地址不存在 (404 Not Found)${suffix}`
+          : normalizedStatus === 429
+            ? `API 请求过于频繁 (429 Too Many Requests)${suffix}`
+            : `API request failed (${normalizedStatus || 'unknown'})${suffix}`;
+    super(message);
+    this.name = 'ProviderHttpError';
+    this.status = normalizedStatus;
+    this.detail = detail;
+  }
+}
+
 const fetchJson = async (fetchImpl, url, init) => {
   const response = await fetchImpl(url, init);
-  if (!response?.ok) throw new Error(`API request failed (${Number(response?.status) || 'unknown'})`);
+  if (!response?.ok) {
+    let detail = '';
+    try {
+      const payload = await response.json();
+      detail = String(payload?.error?.message ?? payload?.message ?? '').trim();
+    } catch {
+      // Some gateways return an empty or non-JSON body for auth errors.
+    }
+    throw new ProviderHttpError(response?.status, detail);
+  }
   return response.json();
 };
 
@@ -593,7 +671,7 @@ export async function requestModels(config = {}, dependencies = {}) {
   for (const url of urls) {
     try {
       const payload = await fetchJson(fetchImpl, url, request.init);
-      const models = parseModelList(payload);
+      const models = parseModelList(payload, getApiType(config));
       if (models.length || url === urls.at(-1)) return models;
     } catch (error) {
       lastError = error;
@@ -1159,7 +1237,7 @@ export function bootstrap(context = {}) {
       showPanel();
     } catch (error) {
       if (!coordinator.isCurrent(request.id)) return;
-      panel.setError(error?.name === 'AbortError' ? '请求已取消' : '生成失败，请检查 API 配置');
+      panel.setError(error?.name === 'AbortError' ? '请求已取消' : error?.message || '生成失败，请检查 API 配置');
       showPanel();
     } finally {
       coordinator.finish(request.id);
@@ -1379,8 +1457,8 @@ export async function initSettingsUI(context = {}) {
           }
         }
         if (modelStatus) modelStatus.textContent = models.length ? `已获取 ${models.length} 个模型。` : '接口返回的模型列表为空，请手动填写。';
-      } catch {
-        if (modelStatus) modelStatus.textContent = '获取模型失败，请检查 URL、跨域设置或手动填写模型名称。';
+      } catch (error) {
+        if (modelStatus) modelStatus.textContent = error?.message || '获取模型失败，请检查 URL、跨域设置或手动填写模型名称。';
       }
     },
     resetPosition() {
