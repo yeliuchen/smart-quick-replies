@@ -19,7 +19,7 @@ test('LiquidGlass uses one isolated panel root instead of the document body', ()
   assert.equal((source.match(/LiquidGlass\.init\(/g) ?? []).length, 1);
   assert.match(source, /LiquidGlass\.init\(\{\s*root:\s*panel\.element,\s*glassElements:\s*panel\.glassElements/);
   assert.doesNotMatch(source, /LiquidGlass\.init\(\{[\s\S]{0,120}root:\s*documentImpl\.body/);
-  assert.match(source, /button\.hidden = true;\s*element\.appendChild\(button\)/);
+  assert.match(source, /button\.hidden = true;\s*renderCandidateButton\(button, '', documentImpl\);\s*element\.appendChild\(button\)/);
 });
 
 test('LiquidGlass CDN is pinned to the inspected upstream release', () => {

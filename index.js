@@ -1,3 +1,5 @@
+import { createLucideIcon, hydrateLucideIcons } from './icons.js';
+
 const LEGACY_SYSTEM_PROMPT = 'You are an assistant that helps the user reply to {{char}}. Given the conversation history, generate 4 distinct, short, and in-character replies that {{user}} might say next. Reply ONLY with a JSON array of 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]';
 
 export const DEFAULT_SYSTEM_PROMPT = `You generate reply suggestions for the USER, who is replying to the CHARACTER {{char}}.
@@ -1057,6 +1059,27 @@ export function createDragScheduler(requestFrame, onFrame = null) {
   };
 }
 
+export function renderCandidateButton(button, item, documentImpl = button?.ownerDocument) {
+  let icon = button.querySelector?.('.sqr-candidate-icon');
+  let text = button.querySelector?.('.sqr-candidate-text');
+  if (!icon || !text) {
+    button.replaceChildren();
+    icon = createLucideIcon(documentImpl, 'trending-up', { className: 'sqr-candidate-icon' });
+    icon.hidden = true;
+    text = documentImpl.createElement('span');
+    text.className = 'sqr-candidate-text';
+    button.append(icon, text);
+  }
+  const value = String(typeof item === 'object' ? item?.text ?? item?.reply ?? '' : item ?? '').trim();
+  const progression = typeof item === 'object' && Boolean(item?.progression);
+  icon.hidden = !progression;
+  text.textContent = value;
+  button.classList.toggle('sqr-progression', progression);
+  button.title = progression ? `推进剧情：${value}` : value;
+  button.hidden = !value;
+  return value;
+}
+
 export function createPanel(documentImpl, callbacks = {}) {
   if (!documentImpl?.createElement) throw new Error('A browser document is required');
   const element = documentImpl.createElement('div');
@@ -1078,7 +1101,7 @@ export function createPanel(documentImpl, callbacks = {}) {
 
   const dragHandle = documentImpl.createElement('div');
   dragHandle.className = 'sqr-drag-handle';
-  dragHandle.textContent = '⋮⋮';
+  dragHandle.appendChild(createLucideIcon(documentImpl, 'grip-vertical', { className: 'sqr-icon' }));
   dragHandle.title = '拖动面板';
   dragHandle.setAttribute('aria-label', '拖动面板');
   element.appendChild(dragHandle);
@@ -1088,6 +1111,7 @@ export function createPanel(documentImpl, callbacks = {}) {
     button.type = 'button';
     button.className = 'sqr-candidate';
     button.hidden = true;
+    renderCandidateButton(button, '', documentImpl);
     element.appendChild(button);
     return button;
   });
@@ -1100,7 +1124,7 @@ export function createPanel(documentImpl, callbacks = {}) {
   const refresh = documentImpl.createElement('button');
   refresh.type = 'button';
   refresh.className = 'sqr-refresh';
-  refresh.textContent = '🔄';
+  refresh.appendChild(createLucideIcon(documentImpl, 'refresh-cw', { className: 'sqr-icon' }));
   refresh.title = '刷新回复建议';
   refresh.setAttribute('aria-label', '刷新回复建议');
   element.appendChild(refresh);
@@ -1137,13 +1161,7 @@ export function createPanel(documentImpl, callbacks = {}) {
   const setCandidates = values => {
     const list = Array.isArray(values) ? values : [];
     buttons.forEach((button, index) => {
-      const item = list[index];
-      const value = String(typeof item === 'object' ? item?.text ?? item?.reply ?? '' : item ?? '').trim();
-      const progression = typeof item === 'object' && Boolean(item?.progression);
-      button.textContent = value;
-      button.classList.toggle('sqr-progression', progression);
-      button.title = progression ? `推进剧情：${value}` : value;
-      button.hidden = !value;
+      renderCandidateButton(button, list[index], documentImpl);
     });
     status.hidden = true;
     status.className = 'sqr-panel-status';
@@ -1172,7 +1190,7 @@ export function createPanel(documentImpl, callbacks = {}) {
   };
 
   buttons.forEach(button => listen(button, 'click', () => {
-    const value = button.textContent.trim();
+    const value = button.querySelector('.sqr-candidate-text')?.textContent.trim() ?? '';
     if (!value) return;
     const input = documentImpl.querySelector('#send_textarea');
     if (input) {
@@ -1622,7 +1640,10 @@ export function bootstrap(context = {}) {
   manualButton.id = 'sqr-manual-trigger';
   manualButton.type = 'button';
   manualButton.className = 'menu_button';
-  manualButton.textContent = '回复建议';
+  manualButton.appendChild(createLucideIcon(documentImpl, 'sparkles', { className: 'sqr-icon' }));
+  const manualText = documentImpl.createElement('span');
+  manualText.textContent = '回复建议';
+  manualButton.appendChild(manualText);
   manualButton.title = '生成快捷回复建议';
   const sendButton = documentImpl.querySelector('#send_but');
   const sendForm = documentImpl.querySelector('#send_form');
