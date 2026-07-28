@@ -1277,14 +1277,15 @@ const LIQUID_GLASS_CDN = 'https://cdn.jsdelivr.net/npm/@ybouane/liquidglass@1.0.
 const PANEL_GLASS_CONFIG = Object.freeze({
   blurAmount: 0.25,
   cornerRadius: 30,
-  opacity: 0.56,
+  opacity: 0.30,
 });
 
 const BUTTON_GLASS_CONFIG = Object.freeze({
   button: true,
-  brightness: -0.3,
+  brightness: -0.45,
   blurAmount: 0.25,
   cornerRadius: 50,
+  opacity: 0.88,
 });
 
 export function configureReplyPanelGlassElements(panel) {

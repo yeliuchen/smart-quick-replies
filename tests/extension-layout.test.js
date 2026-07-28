@@ -47,14 +47,15 @@ test('reply glasses use the official rounded frosted and dark button recipes', (
   assert.deepEqual(JSON.parse(surface.dataset.config), {
     blurAmount: 0.25,
     cornerRadius: 30,
-    opacity: 0.56,
+    opacity: 0.30,
   });
   for (const control of controls) {
     assert.deepEqual(JSON.parse(control.dataset.config), {
       button: true,
-      brightness: -0.3,
+      brightness: -0.45,
       blurAmount: 0.25,
       cornerRadius: 50,
+      opacity: 0.88,
     });
   }
   assert.equal(styleValues.get('--sqr-liquidglass-radius'), '30px');
