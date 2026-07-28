@@ -59,6 +59,12 @@
   margin-bottom: 0;
 }
 
+.sqr-icon,
+.lucide {
+  height: 1em;
+  width: 1em;
+}
+
 .sqr-section-toggle-icon {
   color: var(--sqr-muted);
   transition: transform 120ms ease;
@@ -240,6 +246,12 @@
   min-width: max-content;
   white-space: nowrap;
   writing-mode: horizontal-tb;
+}
+
+.sqr-action-button {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.35rem;
 }
 
 .sqr-position-row #sqr-reset-position {

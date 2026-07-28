@@ -108,7 +108,7 @@ test('settings use one outer drawer and five independent inner drawers', () => {
   const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
   assert.match(html, /<div[^>]*class="sqr-settings inline-drawer"[^>]*id="sqr-settings-root"/s);
   assert.match(html, /<div[^>]*class="inline-drawer-toggle inline-drawer-header"[^>]*data-sqr-root-toggle/);
-  assert.match(html, /data-sqr-root-toggle[^>]*>\s*<b>智能快捷回复建议<\/b>\s*<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"><\/div>/s);
+  assert.match(html, /data-sqr-root-toggle[^>]*>\s*<b>智能快捷回复建议<\/b>\s*<span class="inline-drawer-icon down" data-lucide="chevron-down" aria-hidden="true"><\/span>/s);
   assert.match(html, /class="inline-drawer-content"[^>]*data-sqr-root-content[^>]*hidden/);
   assert.doesNotMatch(html, /data-sqr-tab=/);
   for (const id of ['general', 'api', 'prompt', 'context', 'appearance', 'debug']) {
@@ -116,6 +116,15 @@ test('settings use one outer drawer and five independent inner drawers', () => {
     assert.match(html, new RegExp(`data-sqr-collapse="sqr-${id}"`));
     assert.match(html, new RegExp(`id="sqr-${id}"[^>]*>(?:\\s|.)*?<summary`));
   }
+});
+
+test('settings declare the complete Lucide icon inventory without legacy icons', () => {
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.equal((html.match(/data-lucide="chevron-down"/g) ?? []).length, 9);
+  for (const icon of ['map-pin-off', 'list-restart', 'undo-2', 'trash-2']) {
+    assert.match(html, new RegExp(`data-lucide="${icon}"`));
+  }
+  assert.doesNotMatch(html, /fa-solid|fa-circle-chevron-down|>\s*▾\s*</);
 });
 
 test('settings use compact root heading and inline model and prompt toolbars', () => {

@@ -1,14 +1,14 @@
 <div class="sqr-settings inline-drawer" id="sqr-settings-root">
   <div class="inline-drawer-toggle inline-drawer-header" data-sqr-root-toggle role="button" tabindex="0" aria-expanded="false">
     <b>智能快捷回复建议</b>
-    <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+    <span class="inline-drawer-icon down" data-lucide="chevron-down" aria-hidden="true"></span>
   </div>
   <div class="inline-drawer-content" data-sqr-root-content hidden>
 
   <details class="sqr-settings-section" id="sqr-general" data-sqr-section>
     <summary class="sqr-section-toggle" data-sqr-collapse="sqr-general" aria-expanded="false">
       <span>通用设置</span>
-      <span class="sqr-section-toggle-icon" aria-hidden="true">▾</span>
+      <span class="sqr-section-toggle-icon" data-lucide="chevron-down" aria-hidden="true"></span>
     </summary>
     <div class="sqr-settings-section-content" id="sqr-general-content" data-sqr-section-content>
     <div class="sqr-field-grid">
@@ -39,7 +39,7 @@
     </div>
       <div class="sqr-position-row">
       <span>弹出位置：<output id="sqr-position-display">默认位置</output></span>
-      <button id="sqr-reset-position" class="menu_button sqr-horizontal-button" type="button">重置弹出位置</button>
+      <button id="sqr-reset-position" class="menu_button sqr-action-button sqr-horizontal-button" type="button"><span class="sqr-icon" data-lucide="map-pin-off" aria-hidden="true"></span>重置弹出位置</button>
       </div>
     </div>
   </details>
@@ -47,7 +47,7 @@
   <details class="sqr-settings-section" id="sqr-api" data-sqr-section>
     <summary class="sqr-section-toggle" data-sqr-collapse="sqr-api" aria-expanded="false">
       <span>API 配置</span>
-      <span class="sqr-section-toggle-icon" aria-hidden="true">▾</span>
+      <span class="sqr-section-toggle-icon" data-lucide="chevron-down" aria-hidden="true"></span>
     </summary>
     <div class="sqr-settings-section-content" id="sqr-api-content" data-sqr-section-content>
       <div class="sqr-field-grid">
@@ -89,7 +89,7 @@
         <div class="sqr-model-toolbar">
           <label for="sqr-model-search">模型列表搜索</label>
           <input id="sqr-model-search" type="search" placeholder="筛选已获取的模型">
-          <button id="sqr-fetch-models" class="menu_button" type="button">获取模型列表</button>
+          <button id="sqr-fetch-models" class="menu_button sqr-action-button" type="button"><span class="sqr-icon" data-lucide="list-restart" aria-hidden="true"></span>获取模型列表</button>
         </div>
         <select id="sqr-model-list" size="4" aria-label="可用模型列表"></select>
         <span id="sqr-model-status" class="sqr-status" role="status"></span>
@@ -117,12 +117,12 @@
   <details class="sqr-settings-section" id="sqr-prompt" data-sqr-section>
     <summary class="sqr-section-toggle" data-sqr-collapse="sqr-prompt" aria-expanded="false">
       <span>提示词编辑</span>
-      <span class="sqr-section-toggle-icon" aria-hidden="true">▾</span>
+      <span class="sqr-section-toggle-icon" data-lucide="chevron-down" aria-hidden="true"></span>
     </summary>
     <div class="sqr-settings-section-content" id="sqr-prompt-content" data-sqr-section-content>
       <div class="sqr-prompt-toolbar">
         <span>系统提示词</span>
-        <button id="sqr-reset-prompt" class="menu_button sqr-horizontal-button" type="button">恢复默认提示词</button>
+        <button id="sqr-reset-prompt" class="menu_button sqr-action-button sqr-horizontal-button" type="button"><span class="sqr-icon" data-lucide="undo-2" aria-hidden="true"></span>恢复默认提示词</button>
       </div>
       <label class="sqr-field sqr-field-wide">
       <textarea id="sqr-system-prompt" rows="8" data-sqr-setting="systemPrompt" spellcheck="false"></textarea>
@@ -134,7 +134,7 @@
   <details class="sqr-settings-section" id="sqr-context" data-sqr-section>
     <summary class="sqr-section-toggle" data-sqr-collapse="sqr-context" aria-expanded="false">
       <span>上下文与压缩</span>
-      <span class="sqr-section-toggle-icon" aria-hidden="true">▾</span>
+      <span class="sqr-section-toggle-icon" data-lucide="chevron-down" aria-hidden="true"></span>
     </summary>
     <div class="sqr-settings-section-content" id="sqr-context-content" data-sqr-section-content>
       <div class="sqr-field-grid">
@@ -181,7 +181,7 @@
   <details class="sqr-settings-section" id="sqr-appearance" data-sqr-section>
     <summary class="sqr-section-toggle" data-sqr-collapse="sqr-appearance" aria-expanded="false">
       <span>外观微调</span>
-      <span class="sqr-section-toggle-icon" aria-hidden="true">▾</span>
+      <span class="sqr-section-toggle-icon" data-lucide="chevron-down" aria-hidden="true"></span>
     </summary>
     <div class="sqr-settings-section-content" id="sqr-appearance-content" data-sqr-section-content>
       <div class="sqr-range-grid">
@@ -195,7 +195,7 @@
         <button class="sqr-color-picker-toggle" type="button" aria-haspopup="listbox" aria-expanded="false">
           <span class="sqr-color-swatch" data-sqr-color-preview></span>
           <span data-sqr-color-label>主题默认色</span>
-          <span class="sqr-color-picker-chevron" aria-hidden="true">▾</span>
+          <span class="sqr-color-picker-chevron" data-lucide="chevron-down" aria-hidden="true"></span>
         </button>
         <div class="sqr-color-picker-menu" role="listbox" hidden>
           <button type="button" role="option" data-sqr-color-value="" data-sqr-color-label="主题默认色"><span class="sqr-color-swatch sqr-color-swatch-theme"></span>主题默认色</button>
@@ -213,7 +213,7 @@
         <button class="sqr-color-picker-toggle" type="button" aria-haspopup="listbox" aria-expanded="false">
           <span class="sqr-color-swatch" data-sqr-color-preview></span>
           <span data-sqr-color-label>主题默认色</span>
-          <span class="sqr-color-picker-chevron" aria-hidden="true">▾</span>
+          <span class="sqr-color-picker-chevron" data-lucide="chevron-down" aria-hidden="true"></span>
         </button>
         <div class="sqr-color-picker-menu" role="listbox" hidden>
           <button type="button" role="option" data-sqr-color-value="" data-sqr-color-label="主题默认色"><span class="sqr-color-swatch sqr-color-swatch-theme"></span>主题默认色</button>
@@ -231,12 +231,12 @@
   <details class="sqr-settings-section" id="sqr-debug" data-sqr-section>
     <summary class="sqr-section-toggle" data-sqr-collapse="sqr-debug" aria-expanded="false">
       <span>Debug 调试详情</span>
-      <span class="sqr-section-toggle-icon" aria-hidden="true">▾</span>
+      <span class="sqr-section-toggle-icon" data-lucide="chevron-down" aria-hidden="true"></span>
     </summary>
     <div class="sqr-settings-section-content" id="sqr-debug-content" data-sqr-section-content>
       <div class="sqr-debug-toolbar">
         <span>最近请求、响应和解析事件（自动脱敏，不记录 API Key）</span>
-        <button id="sqr-clear-debug" class="menu_button sqr-horizontal-button" type="button">清空 Debug</button>
+        <button id="sqr-clear-debug" class="menu_button sqr-action-button sqr-horizontal-button" type="button"><span class="sqr-icon" data-lucide="trash-2" aria-hidden="true"></span>清空 Debug</button>
       </div>
       <pre id="sqr-debug-output" class="sqr-debug-output" aria-live="polite">暂无 Debug 记录。</pre>
     </div>

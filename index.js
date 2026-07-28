@@ -854,6 +854,7 @@ const parseSettingValue = element => {
 
 export function renderSettings(container, settings = {}, handlers = {}) {
   if (!container || typeof container.querySelectorAll !== 'function') return () => {};
+  hydrateLucideIcons(container);
   const listeners = [];
   const listen = (element, event, callback) => {
     if (!element?.addEventListener) return;
