@@ -10,10 +10,10 @@ import {
 } from '../index.js';
 
 test('OpenAI request uses system messages and bearer authentication', () => {
-  const request = buildCompletionRequest({ type: 'openai', url: 'http://localhost:1234', key: 'secret', model: 'local', temperature: 0.9, maxTokens: 80, topP: 0.95 }, { system: 'system', messages: [{ role: 'user', content: 'hi' }] });
+  const request = buildCompletionRequest({ type: 'openai', url: 'http://localhost:1234', key: 'secret', model: 'local', temperature: 0.9, maxTokens: 80, topP: 0.95 }, { system: 'system', messages: [{ role: 'user', content: 'hi' }], generationInstruction: 'Generate now.' });
   assert.equal(request.url, 'http://localhost:1234/v1/chat/completions');
   assert.equal(request.init.headers.Authorization, 'Bearer secret');
-  assert.deepEqual(JSON.parse(request.init.body).messages, [{ role: 'system', content: 'system' }, { role: 'user', content: 'hi' }]);
+  assert.deepEqual(JSON.parse(request.init.body).messages, [{ role: 'system', content: 'system' }, { role: 'user', content: 'hi' }, { role: 'user', content: 'Generate now.' }]);
 });
 
 test('Anthropic request uses top-level system and x-api-key', () => {

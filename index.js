@@ -319,6 +319,7 @@ export function buildPromptMessages(systemPrompt, history = { messages: [] }, va
   return {
     system: expanded,
     messages: hasHistoryPlaceholder ? [] : historyMessages.filter(message => message?.role !== 'system'),
+    generationInstruction: 'Generate the four candidate replies now. Output ONLY a JSON array of exactly 4 short strings. Do not explain your answer.',
   };
 }
 
@@ -345,7 +346,9 @@ export function buildCompletionRequest(config = {}, promptData = {}, signal) {
   const url = normalizeEndpoint(config.url, type, 'completion');
   const system = String(promptData.system ?? '').trim();
   const historyMessages = Array.isArray(promptData.messages) ? promptData.messages : [];
-  const messages = system ? [{ role: 'system', content: system }, ...historyMessages] : historyMessages;
+  const generationInstruction = String(promptData.generationInstruction ?? '').trim();
+  const generationMessage = generationInstruction ? [{ role: 'user', content: generationInstruction }] : [];
+  const messages = system ? [{ role: 'system', content: system }, ...historyMessages, ...generationMessage] : [...historyMessages, ...generationMessage];
   const common = {
     model: String(config.model ?? '').trim(),
     temperature: Number(config.temperature ?? 0.9),
