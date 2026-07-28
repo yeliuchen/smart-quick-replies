@@ -443,10 +443,8 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
       const choice = payload?.choices?.[0];
       const message = choice?.message;
       const reasoningOnly = getApiType(config) === 'lmstudio'
-        && choice?.finish_reason === 'length'
         && message
-        && !String(message.content ?? '').trim()
-        && String(message.reasoning_content ?? message.reasoning ?? '').trim();
+        && !String(message.content ?? '').trim();
       if (!reasoningOnly) break;
       const retryConfig = {
         ...config,
