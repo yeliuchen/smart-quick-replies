@@ -62,3 +62,20 @@ test('LM Studio suggestion response can include reasoning content for parsing', 
   }, 'lmstudio', { includeReasoning: true });
   assert.match(text, /Reply 4/);
 });
+
+test('candidate parser accepts numbered replies recovered from reasoning content', () => {
+  const text = [
+    '* Idea 1: tease the character',
+    '1. "First user reply" (teasing)',
+    '2. "Second user reply" (playful)',
+    '3. "Third user reply" (direct)',
+    '4. "Fourth user reply" (warm)',
+    '* Exactly 4 strings? Yes.',
+  ].join('\n');
+  assert.deepEqual(parseCandidateArray(text), [
+    'First user reply',
+    'Second user reply',
+    'Third user reply',
+    'Fourth user reply',
+  ]);
+});

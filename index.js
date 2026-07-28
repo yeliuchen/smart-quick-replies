@@ -220,6 +220,14 @@ const extractReplyLines = text => {
   return [1, 2, 3, 4].map(index => replies.get(index));
 };
 
+const extractNumberedReplies = text => {
+  const source = String(text ?? '');
+  const matches = [...source.matchAll(/(?:^|\r?\n)\s*(?:[-*]\s*)?([1-4])\.\s*(?:"([\s\S]*?)"|([^\r\n]+))/g)];
+  const replies = new Map(matches.map(match => [Number(match[1]), (match[2] ?? match[3] ?? '').trim()]));
+  if (replies.size !== 4 || [...replies.values()].some(value => !value)) return null;
+  return [1, 2, 3, 4].map(index => replies.get(index));
+};
+
 const validateCandidates = parsed => {
   if (!Array.isArray(parsed) || parsed.length !== 4 || parsed.some(item => typeof item !== 'string' || !item.trim())) return null;
   const candidates = parsed.map(item => item.trim());
@@ -235,6 +243,8 @@ export function parseCandidateArray(text) {
   }
   const replyLines = validateCandidates(extractReplyLines(text));
   if (replyLines) return replyLines;
+  const numberedReplies = validateCandidates(extractNumberedReplies(text));
+  if (numberedReplies) return numberedReplies;
   const markdownOptions = validateCandidates(extractMarkdownOptions(text));
   if (markdownOptions) return markdownOptions;
   throw new InvalidCandidateError();
