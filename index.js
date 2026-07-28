@@ -1241,7 +1241,7 @@ export function createPanel(documentImpl, callbacks = {}) {
   };
 }
 
-const LIQUID_GLASS_CDN = 'https://cdn.jsdelivr.net/npm/@ybouane/liquidglass/dist/index.js';
+const LIQUID_GLASS_CDN = 'https://cdn.jsdelivr.net/npm/@ybouane/liquidglass@1.0.3/dist/index.js';
 
 const PANEL_GLASS_CONFIG = Object.freeze({
   blurAmount: 0.25,
@@ -1270,12 +1270,76 @@ export function configureReplyPanelGlassElements(panel) {
 export async function initReplyPanelLiquidGlass(panel) {
   if (!configureReplyPanelGlassElements(panel)) return null;
   const { LiquidGlass } = await import(LIQUID_GLASS_CDN);
-  const instance = await LiquidGlass.init({
+  return LiquidGlass.init({
     root: panel.element,
     glassElements: panel.glassElements,
   });
-  panel.element.classList.add('sqr-liquidglass-ready');
-  return instance;
+}
+
+export function createReplyPanelLiquidGlassController(panel, options = {}) {
+  const windowImpl = options.window ?? globalThis.window;
+  const init = options.init ?? initReplyPanelLiquidGlass;
+  const setTimeoutImpl = options.setTimeout ?? globalThis.setTimeout;
+  const clearTimeoutImpl = options.clearTimeout ?? globalThis.clearTimeout;
+  let instance = null;
+  let initPromise = null;
+  let scheduleId = null;
+  let generation = 0;
+
+  const dispose = () => {
+    generation += 1;
+    if (scheduleId !== null) {
+      if (typeof windowImpl?.cancelIdleCallback === 'function') windowImpl.cancelIdleCallback(scheduleId);
+      else clearTimeoutImpl(scheduleId);
+      scheduleId = null;
+    }
+    instance?.destroy?.();
+    instance = null;
+    panel?.element?.classList.remove('sqr-liquidglass-ready');
+  };
+
+  const ensure = () => {
+    if (!panel?.isVisible?.() || instance || initPromise || scheduleId !== null) return;
+    const initGeneration = ++generation;
+    const start = () => {
+      scheduleId = null;
+      if (!panel.isVisible() || initGeneration !== generation) return;
+      let pending;
+      try {
+        pending = init(panel);
+      } catch {
+        panel.element.classList.remove('sqr-liquidglass-ready');
+        return;
+      }
+      let retryWhenSettled = false;
+      initPromise = Promise.resolve(pending)
+        .then(nextInstance => {
+          if (!nextInstance) return;
+          if (!panel.isVisible() || initGeneration !== generation) {
+            nextInstance.destroy?.();
+            panel.element.classList.remove('sqr-liquidglass-ready');
+            retryWhenSettled = panel.isVisible();
+            return;
+          }
+          instance = nextInstance;
+          panel.element.classList.add('sqr-liquidglass-ready');
+        })
+        .catch(() => {
+          panel.element.classList.remove('sqr-liquidglass-ready');
+        })
+        .finally(() => {
+          initPromise = null;
+          if (retryWhenSettled && panel.isVisible()) ensure();
+        });
+    };
+    if (typeof windowImpl?.requestIdleCallback === 'function') {
+      scheduleId = windowImpl.requestIdleCallback(start, { timeout: 600 });
+    } else {
+      scheduleId = setTimeoutImpl(start, 0);
+    }
+  };
+
+  return { ensure, dispose };
 }
 
 const DEFAULT_EVENT_TYPES = Object.freeze({
@@ -1336,51 +1400,12 @@ export function bootstrap(context = {}) {
   const storage = context.storage ?? windowImpl?.localStorage;
   const positionStore = createPositionStore(storage, 'smart-quick-replies.position');
   const coordinator = createRequestCoordinator(context.AbortController ?? windowImpl?.AbortController ?? globalThis.AbortController);
-  let liquidGlassInstance = null;
-  let liquidGlassInitPromise = null;
-  let liquidGlassScheduleId = null;
-  let liquidGlassGeneration = 0;
+  let liquidGlassController;
   let panel;
-  const disposeLiquidGlass = () => {
-    liquidGlassGeneration += 1;
-    if (liquidGlassScheduleId !== null) {
-      if (typeof windowImpl?.cancelIdleCallback === 'function') windowImpl.cancelIdleCallback(liquidGlassScheduleId);
-      else (context.clearTimeout ?? globalThis.clearTimeout)(liquidGlassScheduleId);
-      liquidGlassScheduleId = null;
-    }
-    liquidGlassInstance?.destroy?.();
-    liquidGlassInstance = null;
-    panel?.element?.classList.remove('sqr-liquidglass-ready');
-  };
-  const ensureLiquidGlass = () => {
-    if (!panel?.isVisible() || liquidGlassInstance || liquidGlassInitPromise || liquidGlassScheduleId !== null) return;
-    const generation = ++liquidGlassGeneration;
-    const start = () => {
-      liquidGlassScheduleId = null;
-      if (!panel.isVisible() || generation !== liquidGlassGeneration) return;
-      liquidGlassInitPromise = initReplyPanelLiquidGlass(panel)
-        .then(instance => {
-          if (!instance) return;
-          if (!panel.isVisible() || generation !== liquidGlassGeneration) instance.destroy();
-          else liquidGlassInstance = instance;
-        })
-        .catch(() => {
-          panel.element.classList.remove('sqr-liquidglass-ready');
-        })
-        .finally(() => {
-          liquidGlassInitPromise = null;
-        });
-    };
-    if (typeof windowImpl?.requestIdleCallback === 'function') {
-      liquidGlassScheduleId = windowImpl.requestIdleCallback(start, { timeout: 600 });
-    } else {
-      liquidGlassScheduleId = (context.setTimeout ?? globalThis.setTimeout)(start, 0);
-    }
-  };
   panel = createPanel(documentImpl, {
     onVisibilityChange: visible => {
-      if (visible) ensureLiquidGlass();
-      else disposeLiquidGlass();
+      if (visible) liquidGlassController?.ensure();
+      else liquidGlassController?.dispose();
     },
     onMove: position => {
       const rect = panel.element.getBoundingClientRect();
@@ -1390,6 +1415,11 @@ export function bootstrap(context = {}) {
       positionStore.write(safePosition);
     },
     onRefresh: () => requestSuggestions(lastRequestInterrupted),
+  });
+  liquidGlassController = createReplyPanelLiquidGlassController(panel, {
+    window: windowImpl,
+    setTimeout: context.setTimeout ?? globalThis.setTimeout,
+    clearTimeout: context.clearTimeout ?? globalThis.clearTimeout,
   });
   const cleanups = [];
   let lastRequestInterrupted = false;
@@ -1559,7 +1589,7 @@ export function bootstrap(context = {}) {
   (sendButton?.parentElement ?? sendForm ?? documentImpl.body)?.appendChild(manualButton);
   cleanups.push(() => manualButton.remove?.());
   cleanups.push(() => {
-    disposeLiquidGlass();
+    liquidGlassController.dispose();
     panel.destroy();
   });
   const manualClick = () => requestSuggestions(false);
