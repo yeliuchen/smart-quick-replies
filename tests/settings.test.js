@@ -144,6 +144,7 @@ test('settings CSS gives form controls theme-aware colors', () => {
   assert.match(css, /\.sqr-debug-output[\s\S]*white-space:\s*pre-wrap/);
   assert.match(css, /\.sqr-color-picker-menu\s*\{[\s\S]*background:\s*#3a3a3f/);
   assert.match(css, /\.sqr-color-picker-toggle\s*\{[\s\S]*background:\s*#3a3a3f[\s\S]*color:/);
+  assert.match(css, /\.sqr-settings-section:not\(\[open\]\)\s*\{[\s\S]*margin-top:\s*0\.1rem[\s\S]*padding:\s*0\.35rem\s+0\.8rem\s+0\.15rem/);
   assert.match(css, /\.sqr-settings-section:not\(\[open\]\)[\s\S]*padding-bottom:\s*0\.15rem/);
   assert.match(css, /\.sqr-settings-section:not\(\[open\]\)\s*>\s*\.sqr-section-toggle[\s\S]*margin-bottom:\s*0/);
 });
