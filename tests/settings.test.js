@@ -58,7 +58,7 @@ test('panel position clamps to the viewport with a margin', () => {
 });
 
 test('default panel position is directly above the input', () => {
-  assert.deepEqual(getDefaultPanelPosition({ left: 100, top: 700, width: 600, height: 80 }, { width: 600, height: 120 }, { width: 1000, height: 800 }, 8), { left: 100, top: 580 });
+  assert.deepEqual(getDefaultPanelPosition({ left: 100, top: 700, width: 600, height: 80 }, { width: 600, height: 120 }, { width: 1000, height: 800 }, 8), { left: 100, top: 572 });
 });
 
 test('settings markup contains all required sections and controls', () => {
@@ -117,6 +117,12 @@ test('suggestion buttons use multiline clamping instead of single-line ellipsis'
   assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*-webkit-line-clamp:\s*3/);
   assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*white-space:\s*normal/);
   assert.doesNotMatch(css, /#sqr-panel \.sqr-candidate,[\s\S]*text-overflow:\s*ellipsis/);
+});
+
+test('loading state hides empty candidates and centers its status', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  assert.match(css, /#sqr-panel \.sqr-candidate\[hidden\]\s*\{[\s\S]*display:\s*none/);
+  assert.match(css, /#sqr-panel \.sqr-panel-status\s*\{[\s\S]*text-align:\s*center/);
 });
 
 test('drag scheduler keeps only the newest pending point until the frame runs', () => {

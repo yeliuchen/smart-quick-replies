@@ -122,7 +122,7 @@ export function clampPosition(position, viewport, panelSize, margin = 8) {
 export function getDefaultPanelPosition(inputRect, panelSize, viewport, margin = 8) {
   return clampPosition({
     left: Number(inputRect?.left) || margin,
-    top: (Number(inputRect?.top) || margin) - (Number(panelSize?.height) || 0),
+    top: (Number(inputRect?.top) || margin) - (Number(panelSize?.height) || 0) - margin,
   }, viewport, panelSize, margin);
 }
 

@@ -375,6 +375,22 @@
   white-space: normal;
 }
 
+#sqr-panel .sqr-candidate[hidden] {
+  display: none;
+}
+
+#sqr-panel .sqr-panel-status {
+  align-self: center;
+  color: inherit;
+  flex: 1 1 auto;
+  min-width: 8rem;
+  text-align: center;
+}
+
+#sqr-panel.sqr-loading .sqr-panel-status {
+  text-align: center;
+}
+
 #sqr-panel .sqr-candidate:hover,
 #sqr-panel .sqr-refresh:hover {
   filter: brightness(1.12);
