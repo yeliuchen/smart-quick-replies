@@ -7,6 +7,8 @@ Your role is only to write what {{user}} could send next. You are NOT {{char}}, 
 Rules:
 - Generate exactly 4 distinct, short, natural messages that {{user}} can send directly to {{char}}.
 - Write from {{user}}'s first-person perspective and address {{char}}.
+- Match the user's demonstrated wording, sentence length, punctuation, directness, and emotional tone from the user style examples.
+- Use the examples only as a style reference; do not copy their subject matter or sentences.
 - Never continue {{char}}'s dialogue, thoughts, actions, narration, or roleplay.
 - Never write stage directions, third-person narration, labels, explanations, or analysis.
 - Treat the latest character message as the message the user needs to answer.
@@ -83,7 +85,10 @@ export function migrateSettings(saved = {}) {
   if (source.systemPrompt === undefined && typeof source.prompt === 'string') {
     source.systemPrompt = source.prompt;
   }
-  if (source.systemPrompt === LEGACY_SYSTEM_PROMPT) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
+  const usesPreviousDefault = typeof source.systemPrompt === 'string'
+    && source.systemPrompt.startsWith('You generate reply suggestions for the USER')
+    && !source.systemPrompt.includes('user style examples');
+  if (source.systemPrompt === LEGACY_SYSTEM_PROMPT || usesPreviousDefault) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
   source.version = 2;
   return source;
 }
@@ -251,6 +256,18 @@ export function formatHistoryText(messages = []) {
     .join('\n');
 }
 
+export function formatUserStyleExamples(messages = [], limit = 12, maxCharacters = 280) {
+  return messages
+    .filter(message => message?.role === 'user' && String(message.content ?? '').trim())
+    .slice(-Math.max(0, Number(limit) || 0))
+    .map((message, index) => {
+      const content = String(message.content).trim();
+      const excerpt = content.length > maxCharacters ? `${content.slice(0, maxCharacters)}…` : content;
+      return `Example ${index + 1}: ${excerpt}`;
+    })
+    .join('\n');
+}
+
 export function estimateTokens(text) {
   const length = String(text ?? '').length;
   return length ? Math.ceil(length / 4) : 0;
@@ -335,7 +352,12 @@ export function buildPromptMessages(systemPrompt, history = { messages: [] }, va
     .filter(message => message?.role === 'system' && String(message.content ?? '').trim())
     .map(message => String(message.content).trim())
     .join('\n\n');
-  const promptWithSystemHistory = [systemPrompt, systemHistory ? `Conversation summary:\n${systemHistory}` : '']
+  const userStyleExamples = String(values.userStyleExamples ?? '').trim();
+  const promptWithSystemHistory = [
+    systemPrompt,
+    userStyleExamples ? `User style reference (imitate the style, not the content):\n${userStyleExamples}` : '',
+    systemHistory ? `Conversation summary:\n${systemHistory}` : '',
+  ]
     .filter(Boolean)
     .join('\n\n');
   const expanded = expandPrompt(promptWithSystemHistory, { ...values, history: historyText });
@@ -1047,6 +1069,12 @@ export function bootstrap(context = {}) {
         charName,
         userName,
       });
+      const styleHistory = buildHistory(live.chat ?? [], {
+        limit: 30,
+        interrupted,
+        charName,
+        userName,
+      });
       const apiConfig = resolveApiConfig(currentSettings);
       const compressed = await compressHistory(history, currentSettings.compression, async (_early, text) => {
         const summarySettings = currentSettings.compression;
@@ -1064,7 +1092,12 @@ export function bootstrap(context = {}) {
       });
       if (!coordinator.isCurrent(request.id)) return;
       const promptTemplate = description ? `Character description:\n${description}\n\n${currentSettings.systemPrompt}` : currentSettings.systemPrompt;
-      const promptData = buildPromptMessages(promptTemplate, compressed, { char: charName, user: userName, charDescription: description });
+      const promptData = buildPromptMessages(promptTemplate, compressed, {
+        char: charName,
+        user: userName,
+        charDescription: description,
+        userStyleExamples: formatUserStyleExamples(styleHistory.messages),
+      });
       const raw = await requestCompletion(apiConfig, promptData, {
         fetch: fetchImpl,
         signal: request.signal,

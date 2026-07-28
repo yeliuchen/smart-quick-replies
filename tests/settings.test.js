@@ -27,6 +27,7 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.match(DEFAULT_SYSTEM_PROMPT, /You generate reply suggestions for the USER/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /You are NOT \{\{char\}\}/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /exactly 4 distinct/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /user style examples/);
 });
 
 test('mergeSettings fills missing nested values without mutating saved settings', () => {

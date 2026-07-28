@@ -6,6 +6,7 @@ import {
   estimateTokens,
   compressHistory,
   buildPromptMessages,
+  formatUserStyleExamples,
 } from '../index.js';
 
 const chat = [
@@ -53,4 +54,19 @@ test('system history is folded into one system prompt for chat templates', () =>
   });
   assert.match(result.system, /Conversation summary:\nEarlier context summary\./);
   assert.deepEqual(result.messages.map(message => message.role), ['user', 'assistant']);
+});
+
+test('user style examples are added separately from conversation history', () => {
+  const examples = formatUserStyleExamples([
+    { role: 'assistant', content: 'Character voice' },
+    { role: 'user', content: '短句。带一点直接的语气。' },
+    { role: 'user', content: '这是一条很长的消息。'.repeat(100) },
+  ], 2, 24);
+  assert.match(examples, /Example 1:/);
+  assert.match(examples, /Example 2:/);
+  assert.ok(examples.length < 100);
+
+  const prompt = buildPromptMessages('Reply as the user.', { messages: [] }, { userStyleExamples: examples });
+  assert.match(prompt.system, /User style reference/);
+  assert.match(prompt.system, /Example 1:/);
 });
