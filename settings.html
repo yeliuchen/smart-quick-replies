@@ -57,6 +57,15 @@
           <option value="openai">OpenAI-compatible</option>
           <option value="anthropic">Anthropic-compatible</option>
           <option value="lmstudio">LM Studio</option>
+          <option value="google">Google Gemini (Native)</option>
+        </select>
+      </label>
+      <label class="sqr-field">
+        <span>兼容接口鉴权方式</span>
+        <select id="sqr-api-auth-mode" data-sqr-setting="api.authMode">
+          <option value="bearer">Bearer Token（默认）</option>
+          <option value="x-api-key">x-api-key</option>
+          <option value="none">无鉴权</option>
         </select>
       </label>
       <label class="sqr-check-field">
@@ -87,14 +96,15 @@
       </div>
     </div>
       <p class="sqr-help">LM Studio 默认可填写 http://localhost:1234/v1，通常不需要 API Key。API Key 仅保存在 SillyTavern Secrets 或明确标注的本地回退位置。</p>
+      <p class="sqr-help sqr-field-wide">OpenAI-compatible 网关如返回 401，请确认 API Key 和鉴权方式；官方 Google Gemini 使用 Google Gemini (Native)，API Key 会通过 x-goog-api-key 发送。</p>
       <div class="sqr-range-grid">
       <label class="sqr-range-field">
         <span>温度 <output data-sqr-output="api.temperature">0.9</output></span>
         <input id="sqr-temperature" type="range" min="0" max="2" step="0.05" value="0.9" data-sqr-setting="api.temperature">
       </label>
       <label class="sqr-range-field">
-        <span>最大 token <output data-sqr-output="api.maxTokens">80</output></span>
-        <input id="sqr-max-tokens" type="range" min="16" max="512" step="1" value="80" data-sqr-setting="api.maxTokens">
+        <span>最大 token <output data-sqr-output="api.maxTokens">512</output></span>
+        <input id="sqr-max-tokens" type="range" min="16" max="1024" step="1" value="512" data-sqr-setting="api.maxTokens">
       </label>
       <label class="sqr-range-field">
         <span>top_p <output data-sqr-output="api.topP">0.95</output></span>
@@ -112,7 +122,7 @@
     <div class="sqr-settings-section-content" id="sqr-prompt-content" data-sqr-section-content>
       <div class="sqr-prompt-toolbar">
         <span>系统提示词</span>
-        <button id="sqr-reset-prompt" class="menu_button" type="button">恢复默认提示词</button>
+        <button id="sqr-reset-prompt" class="menu_button sqr-horizontal-button" type="button">恢复默认提示词</button>
       </div>
       <label class="sqr-field sqr-field-wide">
       <textarea id="sqr-system-prompt" rows="8" data-sqr-setting="systemPrompt" spellcheck="false"></textarea>
@@ -215,6 +225,20 @@
         </div>
       </div>
       </div>
+    </div>
+  </details>
+
+  <details class="sqr-settings-section" id="sqr-debug" data-sqr-section>
+    <summary class="sqr-section-toggle" data-sqr-collapse="sqr-debug" aria-expanded="false">
+      <span>Debug 调试详情</span>
+      <span class="sqr-section-toggle-icon" aria-hidden="true">▾</span>
+    </summary>
+    <div class="sqr-settings-section-content" id="sqr-debug-content" data-sqr-section-content>
+      <div class="sqr-debug-toolbar">
+        <span>最近请求、响应和解析事件（自动脱敏，不记录 API Key）</span>
+        <button id="sqr-clear-debug" class="menu_button sqr-horizontal-button" type="button">清空 Debug</button>
+      </div>
+      <pre id="sqr-debug-output" class="sqr-debug-output" aria-live="polite">暂无 Debug 记录。</pre>
     </div>
   </details>
 </div>

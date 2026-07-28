@@ -9,12 +9,15 @@ Rules:
 - Write from {{user}}'s first-person perspective and address {{char}}.
 - Match the user's demonstrated wording, sentence length, punctuation, directness, and emotional tone from the user style examples.
 - Use the examples only as a style reference; do not copy their subject matter or sentences.
+- Check for scene stagnation: if roughly 6 consecutive user-character exchanges repeat the same situation, goal, conflict, or emotional beat without meaningful change, include 1 or 2 suggestions that gently advance the scene by one plausible small beat.
+- A scene advance may introduce a concrete user action, a new question, a nearby task, or a modest change in focus. Do not abruptly end the scene, skip major events, decide the character's reaction, or take control away from the user.
 - Never continue {{char}}'s dialogue, thoughts, actions, narration, or roleplay.
 - Never write stage directions, third-person narration, labels, explanations, or analysis.
+- Return exactly 4 JSON objects with this shape: {"reply":"message text","progression":false}. Set progression to true only for a gentle, small scene-advancing suggestion; otherwise set it to false.
 - Return message text only: do not wrap a reply in quotation marks and do not append labels such as "Acting", "Draft", "Option", or style explanations.
 - Treat the latest character message as the message the user needs to answer.
 
-Reply ONLY with a JSON array of exactly 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]`;
+Reply ONLY with a JSON array of exactly 4 objects, like: [{"reply":"reply1","progression":false},{"reply":"reply2","progression":true},{"reply":"reply3","progression":false},{"reply":"reply4","progression":false}]`;
 
 export const DEFAULT_SETTINGS = Object.freeze({
   version: 2,
@@ -28,11 +31,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   api: {
     type: 'openai',
+    authMode: 'bearer',
     autoDetect: true,
     url: 'http://localhost:1234/v1',
     model: '',
     temperature: 0.9,
-    maxTokens: 80,
+    maxTokens: 512,
     topP: 0.95,
     timeoutMs: 30000,
   },
@@ -91,8 +95,11 @@ export function migrateSettings(saved = {}) {
     && !source.systemPrompt.includes('user style examples')
     || typeof source.systemPrompt === 'string'
       && source.systemPrompt.includes('user style examples')
-      && !source.systemPrompt.includes('do not wrap a reply');
+      && (!source.systemPrompt.includes('do not wrap a reply')
+        || !source.systemPrompt.includes('scene stagnation')
+        || !source.systemPrompt.includes('Return exactly 4 JSON objects'));
   if (source.systemPrompt === LEGACY_SYSTEM_PROMPT || usesPreviousDefault) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
+  if (isPlainObject(source.api) && Number(source.api.maxTokens) > 0 && Number(source.api.maxTokens) <= 128) source.api.maxTokens = 512;
   source.version = 2;
   return source;
 }
@@ -129,6 +136,7 @@ export function getDefaultPanelPosition(inputRect, panelSize, viewport, margin =
 export function detectApiType(url, selectedType = 'openai', autoDetect = true) {
   if (!autoDetect) return selectedType;
   const value = String(url || '').toLowerCase();
+  if (value.includes('generativelanguage.googleapis.com') || value.includes('googleapis.com/v1beta')) return 'google';
   if (value.includes('anthropic') || value.includes('/messages')) return 'anthropic';
   if (value.includes('lmstudio') || value.includes('localhost:1234') || value.includes('127.0.0.1:1234') || value.includes('/api/v1')) return 'lmstudio';
   return 'openai';
@@ -136,13 +144,23 @@ export function detectApiType(url, selectedType = 'openai', autoDetect = true) {
 
 const trimUrl = url => String(url || '').trim().replace(/\/+$/, '');
 
-export function normalizeEndpoint(url, apiType, kind = 'completion') {
+export function normalizeEndpoint(url, apiType, kind = 'completion', model = '') {
   let base = trimUrl(url);
   if (!base) return '';
   if (kind === 'models') {
+    if (apiType === 'google') {
+      if (/\/models$/i.test(base)) return base;
+      if (/\/models\//i.test(base)) base = base.replace(/\/models\/.*$/i, '');
+      return `${base}/models`;
+    }
     if (/\/models$/i.test(base)) return base;
     if (/\/chat\/completions$/i.test(base)) base = base.replace(/\/chat\/completions$/i, '');
     return /\/v1$/i.test(base) ? `${base}/models` : `${base}/v1/models`;
+  }
+  if (apiType === 'google') {
+    if (/:generateContent$/i.test(base)) return base;
+    if (/\/models\//i.test(base)) return `${base}:generateContent`;
+    return `${base}/models/${encodeURIComponent(String(model || '').trim())}:generateContent`;
   }
   if (apiType === 'anthropic') {
     if (/\/messages$/i.test(base)) return base;
@@ -165,7 +183,7 @@ export function expandPrompt(template, values = {}) {
 }
 
 export class InvalidCandidateError extends Error {
-  constructor(message = 'Response must contain four distinct non-empty replies') {
+  constructor(message = 'Response format invalid: expected a JSON array of four distinct non-empty replies') {
     super(message);
     this.name = 'InvalidCandidateError';
   }
@@ -245,6 +263,31 @@ const validateCandidates = parsed => {
   if (candidates.some(candidate => !candidate)) return null;
   return new Set(candidates).size === 4 ? candidates : null;
 };
+
+const validateCandidateResults = parsed => {
+  if (!Array.isArray(parsed) || parsed.length !== 4) return null;
+  const results = parsed.map(item => {
+    if (typeof item === 'string') return { text: normalizeCandidateText(item), progression: false };
+    if (!item || typeof item !== 'object') return null;
+    return {
+      text: normalizeCandidateText(item.reply ?? item.text ?? item.content ?? ''),
+      progression: Boolean(item.progression ?? item.sceneProgression ?? item.advanceScene),
+    };
+  });
+  if (results.some(result => !result?.text) || new Set(results.map(result => result.text)).size !== 4) return null;
+  return results;
+};
+
+export function parseCandidateResults(text) {
+  try {
+    const results = validateCandidateResults(JSON.parse(extractJsonArray(text)));
+    if (results) return results;
+  } catch {
+    // Fall through to legacy reply formats.
+  }
+  const candidates = parseCandidateArray(text);
+  return candidates.map(candidate => ({ text: candidate, progression: false }));
+}
 
 export function parseCandidateArray(text) {
   try {
@@ -387,31 +430,66 @@ export function buildPromptMessages(systemPrompt, history = { messages: [] }, va
   return {
     system: expanded,
     messages: hasHistoryPlaceholder ? [] : historyMessages.filter(message => message?.role !== 'system'),
-    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. Output ONLY a JSON array of exactly 4 short strings.',
+    responseFormat: 'suggestions',
+    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. If the recent scene has stagnated for about 6 exchanges, make 1 or 2 options gently advance it by one small plausible beat without forcing a resolution. Output ONLY a JSON array of exactly 4 objects with reply and progression fields.',
   };
 }
 
-const getApiType = config => String(config?.type || 'openai').toLowerCase() === 'anthropic' ? 'anthropic' : String(config?.type || 'openai').toLowerCase();
+const getApiType = config => String(config?.type || 'openai').toLowerCase();
 
 const getApiKey = config => String(config?.key ?? config?.apiKey ?? '').trim();
 
-const buildProviderHeaders = (config, signal) => {
+const getAuthMode = config => String(config?.authMode || 'bearer').toLowerCase();
+
+export function shouldUseStreaming(config = {}) {
+  return Boolean(config.stream) || /(?:假流式|fake[-_ ]?stream|streaming)/i.test(String(config.model ?? ''));
+}
+
+export function getEffectiveMaxTokens(config = {}) {
+  const requested = Math.max(1, Number(config.maxTokens ?? config.max_tokens ?? 80) || 80);
+  const minimum = shouldUseStreaming(config)
+    ? 1024
+    : getApiType(config) === 'lmstudio'
+      ? 512
+      : 256;
+  return Math.max(requested, minimum);
+}
+
+const buildProviderHeaders = config => {
   const type = getApiType(config);
   const key = getApiKey(config);
-  const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
-  if (signal) headers.signal = signal;
-  if (type === 'anthropic') {
+  const headers = { 'Content-Type': 'application/json', Accept: shouldUseStreaming(config) ? 'text/event-stream' : 'application/json' };
+  if (type === 'google') {
+    if (key) headers['x-goog-api-key'] = key;
+  } else if (type === 'anthropic') {
     headers['anthropic-version'] = '2023-06-01';
     if (key) headers['x-api-key'] = key;
-  } else if (key) {
+  } else if (key && getAuthMode(config) === 'x-api-key') {
+    headers['x-api-key'] = key;
+  } else if (key && getAuthMode(config) !== 'none') {
     headers.Authorization = `Bearer ${key}`;
   }
   return headers;
 };
 
+const toGoogleContents = (messages, generationInstruction) => {
+  const source = [...(Array.isArray(messages) ? messages : []), ...(generationInstruction ? [{ role: 'user', content: generationInstruction }] : [])]
+    .filter(message => message?.role !== 'system' && String(message?.content ?? '').trim())
+    .map(message => ({
+      role: message.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: String(message.content).trim() }],
+    }));
+  return source.reduce((result, message) => {
+    const previous = result.at(-1);
+    if (previous?.role === message.role) previous.parts.push(...message.parts);
+    else result.push(message);
+    return result;
+  }, []);
+};
+
 export function buildCompletionRequest(config = {}, promptData = {}, signal) {
   const type = getApiType(config);
-  const url = normalizeEndpoint(config.url, type, 'completion');
+  const url = normalizeEndpoint(config.url, type, 'completion', config.model);
   const system = String(promptData.system ?? '').trim();
   const historyMessages = Array.isArray(promptData.messages) ? promptData.messages : [];
   const generationInstruction = String(promptData.generationInstruction ?? '').trim();
@@ -422,17 +500,51 @@ export function buildCompletionRequest(config = {}, promptData = {}, signal) {
     temperature: Number(config.temperature ?? 0.9),
     top_p: Number(config.topP ?? config.top_p ?? 0.95),
   };
-  const body = type === 'anthropic'
+  const body = type === 'google'
+    ? {
+      ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+      contents: toGoogleContents(historyMessages, generationInstruction),
+      generationConfig: {
+        temperature: Number(config.temperature ?? 0.9),
+        topP: Number(config.topP ?? config.top_p ?? 0.95),
+      maxOutputTokens: getEffectiveMaxTokens(config),
+      },
+    }
+    : type === 'anthropic'
     ? {
       ...common,
-      max_tokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
+      max_tokens: getEffectiveMaxTokens(config),
       ...(system ? { system } : {}),
       messages: historyMessages,
     }
     : {
       ...common,
-      max_tokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
-      stream: false,
+      max_tokens: getEffectiveMaxTokens(config),
+      stream: shouldUseStreaming(config),
+      ...(type === 'lmstudio' ? { reasoning: false } : {}),
+      ...(type === 'lmstudio' && promptData.responseFormat === 'suggestions' ? {
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'smart_quick_replies',
+            strict: true,
+            schema: {
+              type: 'array',
+              minItems: 4,
+              maxItems: 4,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['reply', 'progression'],
+                properties: {
+                  reply: { type: 'string' },
+                  progression: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+      } : {}),
       messages,
     };
   const headers = buildProviderHeaders(config);
@@ -463,9 +575,16 @@ export function buildModelsRequest(config = {}) {
   };
 }
 
-export function parseProviderResponse(payload, apiType = 'openai', options = {}) {
+export function parseProviderResponse(payload, apiType = 'openai') {
   const type = getApiType({ type: apiType });
   if (typeof payload === 'string') return payload;
+  if (type === 'google') {
+    const parts = payload?.candidates?.[0]?.content?.parts;
+    const text = Array.isArray(parts)
+      ? parts.filter(part => typeof part?.text === 'string').map(part => part.text).join('')
+      : '';
+    if (text) return text;
+  }
   if (type === 'anthropic') {
     const textBlock = Array.isArray(payload?.content)
       ? payload.content.find(block => block?.type === 'text' && typeof block.text === 'string')
@@ -473,19 +592,20 @@ export function parseProviderResponse(payload, apiType = 'openai', options = {})
     if (textBlock) return textBlock.text;
   }
   const choice = payload?.choices?.[0];
-  if (typeof choice?.message?.content === 'string') {
-    const content = choice.message.content;
-    const reasoning = options.includeReasoning
-      ? String(choice.message.reasoning_content ?? choice.message.reasoning ?? '').trim()
-      : '';
-    return [content, reasoning].filter(Boolean).join('\n\n');
+  if (typeof choice?.message?.content === 'string') return choice.message.content;
+  if (Array.isArray(choice?.message?.content)) {
+    const text = choice.message.content
+      .filter(part => typeof part?.text === 'string')
+      .map(part => part.text)
+      .join('');
+    if (text) return text;
   }
   if (typeof choice?.text === 'string') return choice.text;
   if (typeof payload?.output_text === 'string') return payload.output_text;
   throw new Error('API response did not contain text');
 }
 
-export function parseModelList(payload) {
+export function parseModelList(payload, apiType = 'openai') {
   const entries = Array.isArray(payload?.data)
     ? payload.data
     : Array.isArray(payload?.models)
@@ -495,7 +615,7 @@ export function parseModelList(payload) {
         : [];
   const names = entries
     .map(entry => typeof entry === 'string' ? entry : entry?.id ?? entry?.key ?? entry?.name ?? entry?.model)
-    .map(value => String(value ?? '').trim())
+    .map(value => String(value ?? '').trim().replace(apiType === 'google' ? /^models\//i : /^$/, ''))
     .filter(Boolean);
   return [...new Set(names)].sort((left, right) => left.localeCompare(right));
 }
@@ -506,9 +626,115 @@ const createAbortError = message => {
   return error;
 };
 
-const fetchJson = async (fetchImpl, url, init) => {
+export class ProviderHttpError extends Error {
+  constructor(status, detail = '') {
+    const normalizedStatus = Number(status) || 0;
+    const suffix = detail ? `: ${detail}` : '';
+    const message = normalizedStatus === 401
+      ? `API Key 或鉴权方式无效 (401 Unauthorized)${suffix}`
+      : normalizedStatus === 403
+        ? `API 没有访问权限 (403 Forbidden)${suffix}`
+        : normalizedStatus === 404
+          ? `API 接口地址不存在 (404 Not Found)${suffix}`
+          : normalizedStatus === 429
+            ? `API 请求过于频繁 (429 Too Many Requests)${suffix}`
+            : `API request failed (${normalizedStatus || 'unknown'})${suffix}`;
+    super(message);
+    this.name = 'ProviderHttpError';
+    this.status = normalizedStatus;
+    this.detail = detail;
+  }
+}
+
+export class ProviderResponseError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ProviderResponseError';
+  }
+}
+
+const previewDebugText = (value, limit = 4000) => {
+  const text = String(value ?? '');
+  return text.length > limit ? `${text.slice(0, limit)}\n… [truncated]` : text;
+};
+
+export function summarizeProviderPayload(payload, apiType = 'openai') {
+  const type = getApiType({ type: apiType });
+  const choice = payload?.choices?.[0];
+  const message = choice?.message;
+  const standardContent = type === 'google'
+    ? payload?.candidates?.[0]?.content?.parts?.filter(part => typeof part?.text === 'string').map(part => part.text).join('')
+    : Array.isArray(message?.content)
+      ? message.content.filter(part => typeof part?.text === 'string').map(part => part.text).join('')
+      : message?.content ?? choice?.text ?? payload?.output_text ?? '';
+  const reasoning = type === 'google'
+    ? ''
+    : message?.reasoning_content ?? message?.reasoning ?? '';
+  return {
+    topLevelKeys: Object.keys(payload ?? {}),
+    finishReason: choice?.finish_reason ?? payload?.candidates?.[0]?.finishReason ?? null,
+    standardContentLength: String(standardContent ?? '').length,
+    standardContentPreview: previewDebugText(standardContent),
+    reasoningContentLength: String(reasoning ?? '').length,
+    reasoningContentPreview: previewDebugText(reasoning, 1200),
+    choices: Array.isArray(payload?.choices) ? payload.choices.length : undefined,
+    candidates: Array.isArray(payload?.candidates) ? payload.candidates.length : undefined,
+    usage: payload?.usage ?? null,
+  };
+}
+
+const parseSsePayload = text => {
+  let content = '';
+  let reasoning = '';
+  let finishReason = null;
+  let usage = null;
+  for (const line of String(text ?? '').split(/\r?\n/)) {
+    const data = line.startsWith('data:') ? line.slice(5).trim() : '';
+    if (!data || data === '[DONE]') continue;
+    try {
+      const payload = JSON.parse(data);
+      const choice = payload?.choices?.[0];
+      const delta = choice?.delta ?? {};
+      const deltaContent = Array.isArray(delta.content)
+        ? delta.content.filter(part => typeof part?.text === 'string').map(part => part.text).join('')
+        : String(delta.content ?? '');
+      content += deltaContent;
+      reasoning += String(delta.reasoning_content ?? '');
+      finishReason = choice?.finish_reason ?? finishReason;
+      usage = payload?.usage ?? usage;
+    } catch {
+      // Ignore keep-alive or malformed SSE lines and let response validation report if no text arrived.
+    }
+  }
+  return { choices: [{ message: { role: 'assistant', content, reasoning_content: reasoning }, finish_reason: finishReason }], usage };
+};
+
+const readStreamText = async body => {
+  const reader = body?.getReader?.();
+  if (!reader) return '';
+  const decoder = new TextDecoder();
+  let text = '';
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    text += decoder.decode(chunk.value, { stream: true });
+  }
+  return text + decoder.decode();
+};
+
+const fetchJson = async (fetchImpl, url, init, options = {}) => {
   const response = await fetchImpl(url, init);
-  if (!response?.ok) throw new Error(`API request failed (${Number(response?.status) || 'unknown'})`);
+  if (!response?.ok) {
+    let detail = '';
+    try {
+      const payload = await response.json();
+      detail = String(payload?.error?.message ?? payload?.message ?? '').trim();
+    } catch {
+      // Some gateways return an empty or non-JSON body for auth errors.
+    }
+    throw new ProviderHttpError(response?.status, detail);
+  }
+  if (options.stream && response?.body?.getReader) return parseSsePayload(await readStreamText(response.body));
   return response.json();
 };
 
@@ -532,24 +758,51 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     }, timeoutMs)
     : null;
   const request = buildCompletionRequest(config, promptData, controller?.signal ?? externalSignal);
+  const debug = typeof dependencies.onDebug === 'function' ? dependencies.onDebug : null;
+  const debugBase = {
+    provider: getApiType(config),
+    url: request.url,
+    model: String(config.model ?? '').trim(),
+    maxTokens: getEffectiveMaxTokens(config),
+    authMode: getAuthMode(config),
+    stream: shouldUseStreaming(config),
+    messageCount: Array.isArray(promptData.messages) ? promptData.messages.length : 0,
+  };
+  debug?.({ phase: 'request', ...debugBase });
   try {
-    let payload = await fetchJson(fetchImpl, request.url, request.init);
-    for (const retryMaxTokens of [512, 1024]) {
+    const streaming = shouldUseStreaming(config);
+    let payload = await fetchJson(fetchImpl, request.url, request.init, { stream: streaming });
+    debug?.({ phase: 'response', attempt: 1, ...debugBase, payload: summarizeProviderPayload(payload, config.type) });
+    let attempt = 1;
+  const retryBudgets = getApiType(config) === 'lmstudio' ? [512, 1024] : [256, 512, 1024];
+  const effectiveMaxTokens = getEffectiveMaxTokens(config);
+    for (const retryMaxTokens of retryBudgets) {
       const choice = payload?.choices?.[0];
       const message = choice?.message;
       const reasoningOnly = getApiType(config) === 'lmstudio'
         && message
         && !String(message.content ?? '').trim();
-      if (!reasoningOnly) break;
+      const truncated = choice?.finish_reason === 'length'
+        || payload?.candidates?.[0]?.finishReason === 'MAX_TOKENS';
+      if (!reasoningOnly && !truncated) break;
+      if (retryMaxTokens <= effectiveMaxTokens) continue;
       const retryConfig = {
         ...config,
-        maxTokens: Math.max(Number(config.maxTokens ?? config.max_tokens ?? 80), retryMaxTokens),
+        maxTokens: Math.max(effectiveMaxTokens, retryMaxTokens),
       };
       const retryRequest = buildCompletionRequest(retryConfig, promptData, controller?.signal ?? externalSignal);
-      payload = await fetchJson(fetchImpl, retryRequest.url, retryRequest.init);
+      attempt += 1;
+      payload = await fetchJson(fetchImpl, retryRequest.url, retryRequest.init, { stream: streaming });
+      debug?.({ phase: 'response', attempt, ...debugBase, maxTokens: retryConfig.maxTokens, payload: summarizeProviderPayload(payload, config.type) });
     }
-    return parseProviderResponse(payload, config.type, { includeReasoning: Boolean(promptData.generationInstruction) });
+    const type = getApiType(config);
+    const message = payload?.choices?.[0]?.message;
+    if (type === 'lmstudio' && message && !String(message.content ?? '').trim() && String(message.reasoning_content ?? '').trim()) {
+      throw new ProviderResponseError('LM Studio 只返回了 reasoning 内容，没有标准 content；请关闭模型思考/深度推理，或提高 max_tokens 后重试。');
+    }
+    return parseProviderResponse(payload, config.type);
   } catch (error) {
+    debug?.({ phase: 'error', ...debugBase, error: { name: error?.name, message: error?.message, status: error?.status, stack: previewDebugText(error?.stack, 2000) } });
     if (timedOut) throw createAbortError('API request timed out');
     if (error?.name === 'AbortError') throw createAbortError('API request was cancelled');
     throw error instanceof Error ? error : new Error('API request failed');
@@ -568,7 +821,7 @@ export async function requestModels(config = {}, dependencies = {}) {
   for (const url of urls) {
     try {
       const payload = await fetchJson(fetchImpl, url, request.init);
-      const models = parseModelList(payload);
+      const models = parseModelList(payload, getApiType(config));
       if (models.length || url === urls.at(-1)) return models;
     } catch (error) {
       lastError = error;
@@ -749,11 +1002,11 @@ export function createRequestCoordinator(AbortControllerImpl = globalThis.AbortC
   let active = null;
   return {
     begin() {
-      if (active?.controller) active.controller.abort();
+      if (active) return { ...active, reused: true };
       const id = ++sequence;
       const controller = typeof AbortControllerImpl === 'function' ? new AbortControllerImpl() : null;
-      active = { id, controller };
-      return { id, controller, signal: controller?.signal };
+      active = { id, controller, signal: controller?.signal };
+      return { ...active, reused: false };
     },
     isCurrent(id) {
       return active?.id === id;
@@ -863,9 +1116,12 @@ export function createPanel(documentImpl, callbacks = {}) {
   const setCandidates = values => {
     const list = Array.isArray(values) ? values : [];
     buttons.forEach((button, index) => {
-      const value = String(list[index] ?? '').trim();
+      const item = list[index];
+      const value = String(typeof item === 'object' ? item?.text ?? item?.reply ?? '' : item ?? '').trim();
+      const progression = typeof item === 'object' && Boolean(item?.progression);
       button.textContent = value;
-      button.title = value;
+      button.classList.toggle('sqr-progression', progression);
+      button.title = progression ? `推进剧情：${value}` : value;
       button.hidden = !value;
     });
     status.hidden = true;
@@ -1024,6 +1280,24 @@ export function shouldSuggestOnCharacterRendered(settings = {}, generationActive
   return !generationActive && settings.triggerMode === 'auto';
 }
 
+export function decideAutoSuggestionTrigger(settings = {}, state = {}) {
+  if (settings.triggerMode !== 'auto' || state.generationActive) return null;
+  if (state.characterRendered) return { interrupted: false };
+  return settings.interruptedAutoGenerate ? { interrupted: true } : null;
+}
+
+export function resolveApiRequestConfig(settings = {}, options = {}) {
+  const api = settings.api ?? {};
+  const type = detectApiType(api.url, api.type, api.autoDetect);
+  const inputApiKey = String(options.inputApiKey ?? '').trim();
+  const runtimeApiKey = String(options.runtimeApiKey ?? '').trim();
+  return {
+    ...api,
+    type,
+    key: inputApiKey || String(api.key ?? '').trim() || runtimeApiKey || String(settings.apiKey ?? '').trim(),
+  };
+}
+
 const subscribeEvent = (source, eventName, handler) => {
   if (!source || !eventName) return () => {};
   if (typeof source.on === 'function') {
@@ -1069,7 +1343,28 @@ export function bootstrap(context = {}) {
   let stoppedTimer = null;
   let generationId = 0;
   let handledStopId = -1;
+  let characterRenderedGenerationId = -1;
   let generationActive = false;
+  const debugOutput = documentImpl.querySelector('#sqr-debug-output');
+  const debugEntries = [];
+  const renderDebug = () => {
+    if (debugOutput) debugOutput.textContent = debugEntries.length
+      ? debugEntries.map(entry => JSON.stringify(entry, null, 2)).join('\n\n')
+      : '暂无 Debug 记录。';
+  };
+  const recordDebug = entry => {
+    debugEntries.push({ timestamp: new Date().toISOString(), ...entry });
+    if (debugEntries.length > 30) debugEntries.splice(0, debugEntries.length - 30);
+    renderDebug();
+  };
+  const clearDebug = () => {
+    debugEntries.splice(0);
+    renderDebug();
+  };
+  const clearDebugButton = documentImpl.querySelector('#sqr-clear-debug');
+  clearDebugButton?.addEventListener('click', clearDebug);
+  cleanups.push(() => clearDebugButton?.removeEventListener('click', clearDebug));
+  renderDebug();
 
   const getLiveContext = () => {
     if (typeof context.getContext === 'function') return context.getContext() ?? {};
@@ -1106,17 +1401,24 @@ export function bootstrap(context = {}) {
     }
   };
   const resolveApiConfig = currentSettings => {
-    const type = detectApiType(currentSettings.api.url, currentSettings.api.type, currentSettings.api.autoDetect);
-    return { ...currentSettings.api, type, key: currentSettings.api.key ?? context.apiKey ?? currentSettings.apiKey ?? '' };
+    return resolveApiRequestConfig(currentSettings, {
+      inputApiKey: documentImpl.querySelector('#sqr-api-key')?.value,
+      runtimeApiKey: context.apiKey,
+    });
   };
   const requestSuggestions = async (interrupted = false) => {
     const currentSettings = getSettings();
     if (currentSettings.triggerMode === 'off') return;
-    lastRequestInterrupted = Boolean(interrupted);
     const request = coordinator.begin();
+    if (request.reused) {
+      showPanel();
+      return;
+    }
+    lastRequestInterrupted = Boolean(interrupted);
     panel.setCandidates([]);
     panel.setLoading(true);
     showPanel();
+    let raw = '';
     try {
       const live = getLiveContext();
       const charName = live.name2 ?? live.character?.name ?? 'Character';
@@ -1147,7 +1449,7 @@ export function bootstrap(context = {}) {
         }, {
           system: 'Summarize the early conversation history accurately and concisely for a reply suggestion assistant.',
           messages: [{ role: 'user', content: text }],
-        }, { fetch: fetchImpl, signal: request.signal });
+        }, { fetch: fetchImpl, signal: request.signal, onDebug: entry => recordDebug({ requestId: request.id, operation: 'summary', ...entry }) });
       });
       if (!coordinator.isCurrent(request.id)) return;
       const promptTemplate = description ? `Character description:\n${description}\n\n${currentSettings.systemPrompt}` : currentSettings.systemPrompt;
@@ -1157,22 +1459,40 @@ export function bootstrap(context = {}) {
         charDescription: description,
         userStyleExamples: formatUserStyleExamples(styleHistory.messages),
       });
-      const raw = await requestCompletion(apiConfig, promptData, {
+      raw = await requestCompletion(apiConfig, promptData, {
         fetch: fetchImpl,
         signal: request.signal,
         AbortController: context.AbortController ?? windowImpl?.AbortController ?? globalThis.AbortController,
+        onDebug: entry => recordDebug({ requestId: request.id, operation: 'suggestions', ...entry }),
       });
       if (!coordinator.isCurrent(request.id)) return;
-      panel.setCandidates(parseCandidateArray(raw));
+      panel.setCandidates(parseCandidateResults(raw));
       panel.setLoading(false);
       showPanel();
     } catch (error) {
       if (!coordinator.isCurrent(request.id)) return;
-      panel.setError(error?.name === 'AbortError' ? '请求已取消' : '生成失败，请检查 API 配置');
+      recordDebug({
+        requestId: request.id,
+        operation: 'parse-or-request',
+        phase: 'failure',
+        error: { name: error?.name, message: error?.message, stack: previewDebugText(error?.stack, 2000) },
+        rawResponsePreview: previewDebugText(raw, 4000),
+      });
+      panel.setError(error?.name === 'AbortError' ? '请求已取消' : error?.message || '生成失败，请检查 API 配置');
       showPanel();
     } finally {
       coordinator.finish(request.id);
     }
+  };
+
+  const scheduleAutoSuggestion = interrupted => {
+    if (handledStopId === generationId) return;
+    handledStopId = generationId;
+    if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
+    stoppedTimer = (context.setTimeout ?? globalThis.setTimeout)(() => {
+      stoppedTimer = null;
+      requestSuggestions(interrupted);
+    }, 100);
   };
 
   const manualButton = documentImpl.createElement('button');
@@ -1199,24 +1519,33 @@ export function bootstrap(context = {}) {
     generationActive = true;
     generationId += 1;
     handledStopId = -1;
+    characterRenderedGenerationId = -1;
     coordinator.cancel();
     panel.hide();
   });
   eventHandler('CHARACTER_MESSAGE_RENDERED', () => {
+    characterRenderedGenerationId = generationId;
     const currentSettings = getSettings();
-    if (shouldSuggestOnCharacterRendered(currentSettings, generationActive)) requestSuggestions(false);
+    const trigger = decideAutoSuggestionTrigger(currentSettings, {
+      generationActive,
+      characterRendered: true,
+    });
+    if (trigger) scheduleAutoSuggestion(trigger.interrupted);
   });
   eventHandler('GENERATION_STOPPED', () => {
     generationActive = false;
     const currentSettings = getSettings();
-    if (currentSettings.triggerMode !== 'auto' || !currentSettings.interruptedAutoGenerate || handledStopId === generationId) return;
-    handledStopId = generationId;
-    if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
-    stoppedTimer = (context.setTimeout ?? globalThis.setTimeout)(() => {
+    const trigger = decideAutoSuggestionTrigger(currentSettings, {
+      generationActive,
+      characterRendered: characterRenderedGenerationId === generationId,
+    });
+    if (!trigger) return;
+    if (trigger.interrupted) {
       const live = getLiveContext();
       const last = live.chat?.at?.(-1);
-      if (last && !last.is_user) requestSuggestions(true);
-    }, 100);
+      if (!last || last.is_user) return;
+    }
+    scheduleAutoSuggestion(trigger.interrupted);
   });
   for (const name of ['CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_CREATED']) eventHandler(name, () => { coordinator.cancel(); panel.hide(); });
   eventHandler('MESSAGE_SENT', () => { if (getSettings().dismissAfterSend) panel.hide(); });
@@ -1392,8 +1721,8 @@ export async function initSettingsUI(context = {}) {
           }
         }
         if (modelStatus) modelStatus.textContent = models.length ? `已获取 ${models.length} 个模型。` : '接口返回的模型列表为空，请手动填写。';
-      } catch {
-        if (modelStatus) modelStatus.textContent = '获取模型失败，请检查 URL、跨域设置或手动填写模型名称。';
+      } catch (error) {
+        if (modelStatus) modelStatus.textContent = error?.message || '获取模型失败，请检查 URL、跨域设置或手动填写模型名称。';
       }
     },
     resetPosition() {

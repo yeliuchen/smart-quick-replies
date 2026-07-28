@@ -16,6 +16,7 @@ import {
   writeApiKey,
   resolveRuntimeSettings,
   shouldSuggestOnCharacterRendered,
+  decideAutoSuggestionTrigger,
 } from '../index.js';
 
 test('default settings use automatic trigger, 20 messages, compression, and four candidates', () => {
@@ -23,11 +24,14 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.equal(DEFAULT_SETTINGS.historyLimit, 20);
   assert.equal(DEFAULT_SETTINGS.compression.enabled, true);
   assert.equal(DEFAULT_SETTINGS.compression.threshold, 3000);
-  assert.equal(DEFAULT_SETTINGS.api.maxTokens, 80);
+  assert.equal(DEFAULT_SETTINGS.api.maxTokens, 512);
+  assert.equal(DEFAULT_SETTINGS.api.authMode, 'bearer');
   assert.match(DEFAULT_SYSTEM_PROMPT, /You generate reply suggestions for the USER/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /You are NOT \{\{char\}\}/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /exactly 4 distinct/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /user style examples/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /scene stagnation/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /6 consecutive user-character exchanges/);
 });
 
 test('mergeSettings fills missing nested values without mutating saved settings', () => {
@@ -44,6 +48,12 @@ test('migrateSettings maps the first version keys into the current contract', ()
   assert.equal(migrated.historyLimit, 8);
   assert.equal(migrated.interruptedAutoGenerate, false);
   assert.equal(migrated.systemPrompt, 'custom');
+});
+
+test('migrateSettings raises the old low token default for suggestion generation', () => {
+  assert.equal(migrateSettings({ api: { maxTokens: 80 } }).api.maxTokens, 512);
+  assert.equal(migrateSettings({ api: { maxTokens: 81 } }).api.maxTokens, 512);
+  assert.equal(migrateSettings({ api: { maxTokens: 256 } }).api.maxTokens, 256);
 });
 
 test('migrateSettings upgrades the original default prompt to user-perspective rules', () => {
@@ -63,7 +73,7 @@ test('default panel position is directly above the input', () => {
 
 test('settings markup contains all required sections and controls', () => {
   const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
-  for (const id of ['sqr-general', 'sqr-api', 'sqr-prompt', 'sqr-context', 'sqr-appearance', 'sqr-trigger-mode', 'sqr-api-type', 'sqr-api-url', 'sqr-api-key', 'sqr-model', 'sqr-fetch-models', 'sqr-system-prompt', 'sqr-reset-prompt', 'sqr-reset-position', 'sqr-history-limit', 'sqr-compression-strategy']) {
+  for (const id of ['sqr-general', 'sqr-api', 'sqr-prompt', 'sqr-context', 'sqr-appearance', 'sqr-debug', 'sqr-trigger-mode', 'sqr-api-type', 'sqr-api-auth-mode', 'sqr-api-url', 'sqr-api-key', 'sqr-model', 'sqr-fetch-models', 'sqr-system-prompt', 'sqr-reset-prompt', 'sqr-reset-position', 'sqr-history-limit', 'sqr-compression-strategy', 'sqr-debug-output', 'sqr-clear-debug']) {
     assert.match(html, new RegExp('id=["\\\']' + id + '["\\\']'));
   }
 });
@@ -75,7 +85,7 @@ test('settings use one outer drawer and five independent inner drawers', () => {
   assert.match(html, /data-sqr-root-toggle[^>]*>\s*<b>智能快捷回复建议<\/b>\s*<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"><\/div>/s);
   assert.match(html, /class="inline-drawer-content"[^>]*data-sqr-root-content[^>]*hidden/);
   assert.doesNotMatch(html, /data-sqr-tab=/);
-  for (const id of ['general', 'api', 'prompt', 'context', 'appearance']) {
+  for (const id of ['general', 'api', 'prompt', 'context', 'appearance', 'debug']) {
     assert.match(html, new RegExp(`<details[^>]*id="sqr-${id}"[^>]*data-sqr-section`));
     assert.match(html, new RegExp(`data-sqr-collapse="sqr-${id}"`));
     assert.match(html, new RegExp(`id="sqr-${id}"[^>]*>(?:\\s|.)*?<summary`));
@@ -87,6 +97,8 @@ test('settings use compact root heading and inline model and prompt toolbars', (
   assert.doesNotMatch(html, /<h[1-4][\s>]/i);
   assert.match(html, /id="sqr-button-color"[^>]*data-sqr-setting="appearance\.buttonColor"/);
   assert.match(html, /id="sqr-button-text-color"[^>]*data-sqr-setting="appearance\.buttonTextColor"/);
+  assert.match(html, /<option value="google">Google Gemini/);
+  assert.match(html, /id="sqr-reset-prompt"[^>]*sqr-horizontal-button/);
   assert.match(html, /data-sqr-color-picker[\s\S]*data-sqr-color-value="#4f8cff"/);
   assert.match(html, /data-sqr-color-picker[\s\S]*data-sqr-color-value="#ffffff"/);
   assert.match(html, /class="sqr-model-toolbar"[\s\S]*id="sqr-model-search"[\s\S]*id="sqr-fetch-models"/);
@@ -110,6 +122,8 @@ test('settings CSS gives form controls theme-aware colors', () => {
   assert.match(css, /background:\s*var\(--sqr-input-background/);
   assert.match(css, /color:\s*var\(--sqr-input-text/);
   assert.match(css, /::placeholder/);
+  assert.match(css, /\.sqr-horizontal-button[\s\S]*white-space:\s*nowrap/);
+  assert.match(css, /\.sqr-debug-output[\s\S]*white-space:\s*pre-wrap/);
 });
 
 test('suggestion buttons use multiline clamping instead of single-line ellipsis', () => {
@@ -123,6 +137,11 @@ test('loading state hides empty candidates and centers its status', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   assert.match(css, /#sqr-panel \.sqr-candidate\[hidden\]\s*\{[\s\S]*display:\s*none/);
   assert.match(css, /#sqr-panel \.sqr-panel-status\s*\{[\s\S]*text-align:\s*center/);
+});
+
+test('progression candidates have a visible marker style', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.sqr-candidate\.sqr-progression::before[\s\S]*content:\s*'↗'/);
 });
 
 test('drag scheduler keeps only the newest pending point until the frame runs', () => {
@@ -145,14 +164,15 @@ test('position store persists, reads, and clears JSON coordinates', () => {
   assert.equal(store.read(), null);
 });
 
-test('request coordinator makes only the newest request current', () => {
+test('request coordinator reuses an active request instead of duplicating it', () => {
   const coordinator = createRequestCoordinator();
   const first = coordinator.begin();
   const second = coordinator.begin();
-  assert.equal(coordinator.isCurrent(first.id), false);
-  assert.equal(coordinator.isCurrent(second.id), true);
+  assert.equal(second.id, first.id);
+  assert.equal(second.reused, true);
+  assert.equal(coordinator.isCurrent(first.id), true);
   coordinator.cancel();
-  assert.equal(coordinator.isCurrent(second.id), false);
+  assert.equal(coordinator.isCurrent(first.id), false);
 });
 
 test('API keys prefer a Secrets adapter and never enter extension settings', async () => {
@@ -181,4 +201,11 @@ test('character render suggestions wait until the main generation stops', () => 
   assert.equal(shouldSuggestOnCharacterRendered({ triggerMode: 'auto' }, true), false);
   assert.equal(shouldSuggestOnCharacterRendered({ triggerMode: 'auto' }, false), true);
   assert.equal(shouldSuggestOnCharacterRendered({ triggerMode: 'manual' }, false), false);
+});
+
+test('auto suggestions trigger after either render-before-stop or stop-only interruption', () => {
+  assert.deepEqual(decideAutoSuggestionTrigger({ triggerMode: 'auto', interruptedAutoGenerate: true }, { generationActive: true, characterRendered: true }), null);
+  assert.deepEqual(decideAutoSuggestionTrigger({ triggerMode: 'auto', interruptedAutoGenerate: true }, { generationActive: false, characterRendered: true }), { interrupted: false });
+  assert.deepEqual(decideAutoSuggestionTrigger({ triggerMode: 'auto', interruptedAutoGenerate: true }, { generationActive: false, characterRendered: false }), { interrupted: true });
+  assert.equal(decideAutoSuggestionTrigger({ triggerMode: 'manual', interruptedAutoGenerate: true }, { generationActive: false, characterRendered: true }), null);
 });
