@@ -134,6 +134,15 @@ test('LM Studio completion explicitly disables reasoning output', () => {
   assert.equal(JSON.parse(request.init.body).reasoning, false);
 });
 
+test('LM Studio suggestion requests include a strict four-item JSON schema', () => {
+  const request = buildCompletionRequest({ type: 'lmstudio', url: 'http://localhost:1234/v1', model: 'gemma', maxTokens: 512 }, { responseFormat: 'suggestions', messages: [] });
+  const format = JSON.parse(request.init.body).response_format;
+  assert.equal(format.type, 'json_schema');
+  assert.equal(format.json_schema.strict, true);
+  assert.equal(format.json_schema.schema.minItems, 4);
+  assert.equal(format.json_schema.schema.maxItems, 4);
+});
+
 test('LM Studio discovery falls back when the OpenAI endpoint returns an empty list', async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {

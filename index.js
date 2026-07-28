@@ -430,6 +430,7 @@ export function buildPromptMessages(systemPrompt, history = { messages: [] }, va
   return {
     system: expanded,
     messages: hasHistoryPlaceholder ? [] : historyMessages.filter(message => message?.role !== 'system'),
+    responseFormat: 'suggestions',
     generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. If the recent scene has stagnated for about 6 exchanges, make 1 or 2 options gently advance it by one small plausible beat without forcing a resolution. Output ONLY a JSON array of exactly 4 objects with reply and progression fields.',
   };
 }
@@ -521,6 +522,29 @@ export function buildCompletionRequest(config = {}, promptData = {}, signal) {
       max_tokens: getEffectiveMaxTokens(config),
       stream: shouldUseStreaming(config),
       ...(type === 'lmstudio' ? { reasoning: false } : {}),
+      ...(type === 'lmstudio' && promptData.responseFormat === 'suggestions' ? {
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'smart_quick_replies',
+            strict: true,
+            schema: {
+              type: 'array',
+              minItems: 4,
+              maxItems: 4,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['reply', 'progression'],
+                properties: {
+                  reply: { type: 'string' },
+                  progression: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+      } : {}),
       messages,
     };
   const headers = buildProviderHeaders(config);
