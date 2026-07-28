@@ -1054,6 +1054,16 @@ export function createPanel(documentImpl, callbacks = {}) {
   element.setAttribute('role', 'region');
   element.setAttribute('aria-label', '智能快捷回复建议');
 
+  const scene = documentImpl.createElement('div');
+  scene.className = 'sqr-glass-scene';
+  scene.setAttribute('aria-hidden', 'true');
+  element.appendChild(scene);
+
+  const surface = documentImpl.createElement('div');
+  surface.className = 'sqr-panel-surface';
+  surface.setAttribute('aria-hidden', 'true');
+  element.appendChild(surface);
+
   const dragHandle = documentImpl.createElement('div');
   dragHandle.className = 'sqr-drag-handle';
   dragHandle.textContent = '⋮⋮';
@@ -1061,9 +1071,14 @@ export function createPanel(documentImpl, callbacks = {}) {
   dragHandle.setAttribute('aria-label', '拖动面板');
   element.appendChild(dragHandle);
 
-  const candidates = documentImpl.createElement('div');
-  candidates.className = 'sqr-candidates';
-  element.appendChild(candidates);
+  const buttons = Array.from({ length: 4 }, () => {
+    const button = documentImpl.createElement('button');
+    button.type = 'button';
+    button.className = 'sqr-candidate';
+    button.hidden = true;
+    element.appendChild(button);
+    return button;
+  });
 
   const status = documentImpl.createElement('span');
   status.className = 'sqr-panel-status';
@@ -1078,14 +1093,6 @@ export function createPanel(documentImpl, callbacks = {}) {
   refresh.setAttribute('aria-label', '刷新回复建议');
   element.appendChild(refresh);
 
-  const buttons = Array.from({ length: 4 }, () => {
-    const button = documentImpl.createElement('button');
-    button.type = 'button';
-    button.className = 'sqr-candidate';
-    button.hidden = true;
-    candidates.appendChild(button);
-    return button;
-  });
   const listeners = [];
   const listen = (target, event, handler, options) => {
     target.addEventListener(event, handler, options);
@@ -1101,11 +1108,13 @@ export function createPanel(documentImpl, callbacks = {}) {
   const hide = () => {
     element.hidden = true;
     element.style.display = 'none';
+    callbacks.onVisibilityChange?.(false);
   };
   const show = options => {
     if (options?.position) setPosition(options.position);
     element.hidden = false;
     element.style.display = 'flex';
+    callbacks.onVisibilityChange?.(true);
   };
   const setPosition = next => {
     if (!Number.isFinite(Number(next?.left)) || !Number.isFinite(Number(next?.top))) return;
@@ -1127,7 +1136,6 @@ export function createPanel(documentImpl, callbacks = {}) {
     status.hidden = true;
     status.className = 'sqr-panel-status';
     status.textContent = '';
-    candidates.hidden = false;
   };
   const setLoading = loading => {
     element.classList.toggle('sqr-loading', Boolean(loading));
@@ -1146,7 +1154,6 @@ export function createPanel(documentImpl, callbacks = {}) {
     element.classList.remove('sqr-loading');
     refresh.disabled = false;
     buttons.forEach(button => { button.disabled = false; button.hidden = true; });
-    candidates.hidden = true;
     status.hidden = false;
     status.className = 'sqr-panel-status sqr-error';
     status.textContent = String(message || '生成失败，请检查 API 配置');
@@ -1217,6 +1224,7 @@ export function createPanel(documentImpl, callbacks = {}) {
   documentImpl.body?.appendChild(element);
   return {
     element,
+    glassElements: [surface, ...buttons, refresh],
     show,
     hide,
     setCandidates,
@@ -1231,6 +1239,59 @@ export function createPanel(documentImpl, callbacks = {}) {
       element.remove?.();
     },
   };
+}
+
+const LIQUID_GLASS_CDN = 'https://cdn.jsdelivr.net/npm/@ybouane/liquidglass/dist/index.js';
+
+const PANEL_GLASS_CONFIG = Object.freeze({
+  blurAmount: 0.12,
+  refraction: 0.5,
+  chromAberration: 0.02,
+  edgeHighlight: 0.05,
+  specular: 0.06,
+  fresnel: 0.6,
+  cornerRadius: 14,
+  zRadius: 18,
+  opacity: 0.56,
+  tintStrength: 0.08,
+  shadowOpacity: 0.18,
+  shadowSpread: 7,
+  shadowOffsetY: 2,
+});
+
+const BUTTON_GLASS_CONFIG = Object.freeze({
+  blurAmount: 0.16,
+  refraction: 0.55,
+  chromAberration: 0.02,
+  edgeHighlight: 0.05,
+  specular: 0.08,
+  fresnel: 0.58,
+  cornerRadius: 9,
+  zRadius: 14,
+  opacity: 0.84,
+  saturation: -0.18,
+  tintStrength: 0.72,
+  brightness: -0.16,
+  shadowOpacity: 0.24,
+  shadowSpread: 5,
+  shadowOffsetY: 2,
+  button: true,
+});
+
+export async function initReplyPanelLiquidGlass(panel) {
+  if (!panel?.element || !Array.isArray(panel.glassElements) || panel.glassElements.length < 2) return null;
+  const { LiquidGlass } = await import(LIQUID_GLASS_CDN);
+  const [surface, ...controls] = panel.glassElements;
+  surface.dataset.config = JSON.stringify(PANEL_GLASS_CONFIG);
+  controls.forEach(control => {
+    control.dataset.config = JSON.stringify(BUTTON_GLASS_CONFIG);
+  });
+  const instance = await LiquidGlass.init({
+    root: panel.element,
+    glassElements: panel.glassElements,
+  });
+  panel.element.classList.add('sqr-liquidglass-ready');
+  return instance;
 }
 
 const DEFAULT_EVENT_TYPES = Object.freeze({
@@ -1291,7 +1352,52 @@ export function bootstrap(context = {}) {
   const storage = context.storage ?? windowImpl?.localStorage;
   const positionStore = createPositionStore(storage, 'smart-quick-replies.position');
   const coordinator = createRequestCoordinator(context.AbortController ?? windowImpl?.AbortController ?? globalThis.AbortController);
-  const panel = createPanel(documentImpl, {
+  let liquidGlassInstance = null;
+  let liquidGlassInitPromise = null;
+  let liquidGlassScheduleId = null;
+  let liquidGlassGeneration = 0;
+  let panel;
+  const disposeLiquidGlass = () => {
+    liquidGlassGeneration += 1;
+    if (liquidGlassScheduleId !== null) {
+      if (typeof windowImpl?.cancelIdleCallback === 'function') windowImpl.cancelIdleCallback(liquidGlassScheduleId);
+      else (context.clearTimeout ?? globalThis.clearTimeout)(liquidGlassScheduleId);
+      liquidGlassScheduleId = null;
+    }
+    liquidGlassInstance?.destroy?.();
+    liquidGlassInstance = null;
+    panel?.element?.classList.remove('sqr-liquidglass-ready');
+  };
+  const ensureLiquidGlass = () => {
+    if (!panel?.isVisible() || liquidGlassInstance || liquidGlassInitPromise || liquidGlassScheduleId !== null) return;
+    const generation = ++liquidGlassGeneration;
+    const start = () => {
+      liquidGlassScheduleId = null;
+      if (!panel.isVisible() || generation !== liquidGlassGeneration) return;
+      liquidGlassInitPromise = initReplyPanelLiquidGlass(panel)
+        .then(instance => {
+          if (!instance) return;
+          if (!panel.isVisible() || generation !== liquidGlassGeneration) instance.destroy();
+          else liquidGlassInstance = instance;
+        })
+        .catch(() => {
+          panel.element.classList.remove('sqr-liquidglass-ready');
+        })
+        .finally(() => {
+          liquidGlassInitPromise = null;
+        });
+    };
+    if (typeof windowImpl?.requestIdleCallback === 'function') {
+      liquidGlassScheduleId = windowImpl.requestIdleCallback(start, { timeout: 600 });
+    } else {
+      liquidGlassScheduleId = (context.setTimeout ?? globalThis.setTimeout)(start, 0);
+    }
+  };
+  panel = createPanel(documentImpl, {
+    onVisibilityChange: visible => {
+      if (visible) ensureLiquidGlass();
+      else disposeLiquidGlass();
+    },
     onMove: position => {
       const rect = panel.element.getBoundingClientRect();
       const viewport = { width: windowImpl?.innerWidth ?? 0, height: windowImpl?.innerHeight ?? 0 };
@@ -1469,6 +1575,7 @@ export function bootstrap(context = {}) {
   (sendButton?.parentElement ?? sendForm ?? documentImpl.body)?.appendChild(manualButton);
   cleanups.push(() => manualButton.remove?.());
   cleanups.push(() => {
+    disposeLiquidGlass();
     panel.destroy();
   });
   const manualClick = () => requestSuggestions(false);

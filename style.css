@@ -344,19 +344,39 @@
   --sqr-panel-background: rgba(92, 94, 102, 0.88);
   --sqr-panel-text: var(--SmartThemeQuoteColor, #75b7ff);
   align-items: stretch;
-  backdrop-filter: blur(10px);
+  backdrop-filter: none;
   background: var(--sqr-panel-background);
-  border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.2));
-  border-radius: 0.65rem;
-  box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.28);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
   color: var(--sqr-panel-text);
   display: flex;
   gap: 0.45rem;
+  isolation: isolate;
   max-width: min(900px, calc(100vw - 16px));
   opacity: var(--sqr-panel-opacity);
   padding: 0.45rem;
   position: fixed;
   z-index: 10050;
+}
+
+#sqr-panel.sqr-liquidglass-ready {
+  background: transparent;
+}
+
+#sqr-panel .sqr-glass-scene {
+  background: var(--SmartThemeBlurTintColor, rgba(48, 52, 68, 0.5));
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: -1;
+}
+
+#sqr-panel .sqr-panel-surface {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
 }
 
 #sqr-panel.sqr-dragging {
@@ -369,14 +389,9 @@
   cursor: move;
   display: flex;
   padding: 0 0.25rem;
+  position: relative;
   user-select: none;
-}
-
-#sqr-panel .sqr-candidates {
-  display: flex;
-  flex: 1 1 auto;
-  gap: 0.45rem;
-  min-width: 0;
+  z-index: 1;
 }
 
 #sqr-panel .sqr-candidate,
@@ -389,7 +404,16 @@
   min-width: 0;
   overflow: hidden;
   padding: 0.45rem 0.6rem;
+  position: relative;
   text-align: left;
+  z-index: 1;
+}
+
+#sqr-panel.sqr-liquidglass-ready .sqr-candidate,
+#sqr-panel.sqr-liquidglass-ready .sqr-refresh {
+  background: transparent;
+  border-color: transparent;
+  border-radius: 0;
 }
 
 #sqr-panel .sqr-candidate {
@@ -420,7 +444,9 @@
   color: inherit;
   flex: 1 1 auto;
   min-width: 8rem;
+  position: relative;
   text-align: center;
+  z-index: 1;
 }
 
 #sqr-panel.sqr-loading .sqr-panel-status {
@@ -459,11 +485,6 @@
   }
 
   #sqr-panel {
-    flex-wrap: wrap;
-  }
-
-  #sqr-panel .sqr-candidates {
-    flex-basis: calc(100% - 2rem);
     flex-wrap: wrap;
   }
 

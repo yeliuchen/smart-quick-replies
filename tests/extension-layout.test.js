@@ -12,3 +12,11 @@ test('SillyTavern install files are available at the repository root', () => {
   assert.equal(manifest.js, 'index.js');
   assert.equal(manifest.css, 'style.css');
 });
+
+test('LiquidGlass uses one isolated panel root instead of the document body', () => {
+  const source = fs.readFileSync(new URL('index.js', root), 'utf8');
+  assert.equal((source.match(/LiquidGlass\.init\(/g) ?? []).length, 1);
+  assert.match(source, /LiquidGlass\.init\(\{\s*root:\s*panel\.element,\s*glassElements:\s*panel\.glassElements/);
+  assert.doesNotMatch(source, /LiquidGlass\.init\(\{[\s\S]{0,120}root:\s*documentImpl\.body/);
+  assert.match(source, /button\.hidden = true;\s*element\.appendChild\(button\)/);
+});
