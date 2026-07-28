@@ -1101,13 +1101,11 @@ export function createPanel(documentImpl, callbacks = {}) {
   const hide = () => {
     element.hidden = true;
     element.style.display = 'none';
-    callbacks.onVisibilityChange?.(false);
   };
   const show = options => {
     if (options?.position) setPosition(options.position);
     element.hidden = false;
     element.style.display = 'flex';
-    callbacks.onVisibilityChange?.(true);
   };
   const setPosition = next => {
     if (!Number.isFinite(Number(next?.left)) || !Number.isFinite(Number(next?.top))) return;
@@ -1219,8 +1217,6 @@ export function createPanel(documentImpl, callbacks = {}) {
   documentImpl.body?.appendChild(element);
   return {
     element,
-    glassRoot: candidates,
-    glassElements: buttons,
     show,
     hide,
     setCandidates,
@@ -1236,41 +1232,6 @@ export function createPanel(documentImpl, callbacks = {}) {
     },
   };
 }
-
-const LIQUID_GLASS_CDN = 'https://cdn.jsdelivr.net/npm/@ybouane/liquidglass/dist/index.js';
-
-export async function initLiquidGlass(documentImpl, windowImpl, root, glassElements, config = {}) {
-  if (!documentImpl?.body || !windowImpl || !root || !glassElements?.length) return null;
-
-  // LiquidGlass is loaded only in the browser so Node-based extension tests do
-  // not need to resolve a remote HTTPS module.
-  const { LiquidGlass } = await import(LIQUID_GLASS_CDN);
-  glassElements.forEach(glassElement => {
-    glassElement.dataset.config = JSON.stringify(config);
-  });
-
-  const instance = await LiquidGlass.init({
-    root,
-    glassElements,
-  });
-  glassElements.forEach(glassElement => glassElement.classList.add('sqr-liquidglass-ready'));
-  return instance;
-}
-
-const PANEL_GLASS_CONFIG = {
-    blurAmount: 0.14,
-    refraction: 0.58,
-    chromAberration: 0.025,
-    edgeHighlight: 0.06,
-    specular: 0.08,
-    fresnel: 0.65,
-    cornerRadius: 14,
-    zRadius: 20,
-    opacity: 0.62,
-    shadowOpacity: 0.2,
-    shadowSpread: 8,
-    shadowOffsetY: 2,
-};
 
 const DEFAULT_EVENT_TYPES = Object.freeze({
   GENERATION_STARTED: 'GENERATION_STARTED',
@@ -1330,27 +1291,7 @@ export function bootstrap(context = {}) {
   const storage = context.storage ?? windowImpl?.localStorage;
   const positionStore = createPositionStore(storage, 'smart-quick-replies.position');
   const coordinator = createRequestCoordinator(context.AbortController ?? windowImpl?.AbortController ?? globalThis.AbortController);
-  let liquidGlassInstance = null;
-  let liquidGlassInitPromise = null;
-  let liquidGlassScheduleId = null;
-  let ensureLiquidGlass = () => {};
-  const disposeLiquidGlass = () => {
-    if (liquidGlassScheduleId !== null) {
-      if (typeof windowImpl?.cancelIdleCallback === 'function') windowImpl.cancelIdleCallback(liquidGlassScheduleId);
-      else (context.clearTimeout ?? globalThis.clearTimeout)(liquidGlassScheduleId);
-      liquidGlassScheduleId = null;
-    }
-    liquidGlassInstance?.destroy?.();
-    liquidGlassInstance = null;
-    panel?.element?.classList.remove('sqr-liquidglass-ready');
-    panel?.glassElements?.forEach(element => element.classList.remove('sqr-liquidglass-ready'));
-  };
-  let panel;
-  panel = createPanel(documentImpl, {
-    onVisibilityChange: visible => {
-      if (visible) ensureLiquidGlass();
-      else disposeLiquidGlass();
-    },
+  const panel = createPanel(documentImpl, {
     onMove: position => {
       const rect = panel.element.getBoundingClientRect();
       const viewport = { width: windowImpl?.innerWidth ?? 0, height: windowImpl?.innerHeight ?? 0 };
@@ -1358,35 +1299,8 @@ export function bootstrap(context = {}) {
       panel.setPosition(safePosition);
       positionStore.write(safePosition);
     },
-      onRefresh: () => requestSuggestions(lastRequestInterrupted),
+    onRefresh: () => requestSuggestions(lastRequestInterrupted),
   });
-  ensureLiquidGlass = () => {
-    if (liquidGlassInstance || liquidGlassInitPromise || liquidGlassScheduleId !== null || !panel.isVisible()) return;
-    const start = () => {
-      liquidGlassScheduleId = null;
-      if (!panel.isVisible()) return;
-    liquidGlassInitPromise = Promise.allSettled([
-      initLiquidGlass(documentImpl, windowImpl, documentImpl.body, [panel.element], PANEL_GLASS_CONFIG),
-      ])
-        .then(results => {
-          const instances = results
-            .filter(result => result.status === 'fulfilled' && result.value)
-            .map(result => result.value);
-          const complete = results.every(result => result.status === 'fulfilled');
-          if (!complete || !panel.isVisible()) instances.forEach(instance => instance.destroy?.());
-          else liquidGlassInstance = { destroy: () => instances.forEach(instance => instance.destroy?.()) };
-        })
-        .catch(() => {
-          // Keep the existing CSS glass styling when WebGL/CDN loading is unavailable.
-        })
-        .finally(() => { liquidGlassInitPromise = null; });
-    };
-    if (typeof windowImpl?.requestIdleCallback === 'function') {
-      liquidGlassScheduleId = windowImpl.requestIdleCallback(start, { timeout: 1200 });
-    } else {
-      liquidGlassScheduleId = (context.setTimeout ?? globalThis.setTimeout)(start, 0);
-    }
-  };
   const cleanups = [];
   let lastRequestInterrupted = false;
   let stoppedTimer = null;
@@ -1555,7 +1469,6 @@ export function bootstrap(context = {}) {
   (sendButton?.parentElement ?? sendForm ?? documentImpl.body)?.appendChild(manualButton);
   cleanups.push(() => manualButton.remove?.());
   cleanups.push(() => {
-    disposeLiquidGlass();
     panel.destroy();
   });
   const manualClick = () => requestSuggestions(false);

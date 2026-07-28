@@ -341,8 +341,8 @@
   --sqr-panel-opacity: 0.94;
   --sqr-button-color: var(--SmartThemeQuoteColor, #536dfe);
   --sqr-button-text: var(--SmartThemeBodyColor, #fff);
-  --sqr-panel-background: transparent;
-  --sqr-panel-text: var(--SmartThemeBodyColor, #eef2ff);
+  --sqr-panel-background: rgba(92, 94, 102, 0.88);
+  --sqr-panel-text: var(--SmartThemeQuoteColor, #75b7ff);
   align-items: stretch;
   backdrop-filter: blur(10px);
   background: var(--sqr-panel-background);
@@ -357,14 +357,6 @@
   padding: 0.45rem;
   position: fixed;
   z-index: 10050;
-}
-
-/* LiquidGlass supplies the rendered surface through its injected canvas. */
-#sqr-panel.sqr-liquidglass-ready {
-  backdrop-filter: none;
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
 }
 
 #sqr-panel.sqr-dragging {
@@ -389,11 +381,10 @@
 
 #sqr-panel .sqr-candidate,
 #sqr-panel .sqr-refresh {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-  color: var(--sqr-button-text, #f4f6ff);
+  background: var(--sqr-button-color);
+  border: 1px solid color-mix(in srgb, var(--sqr-button-color) 70%, var(--SmartThemeBorderColor, #fff));
+  border-radius: 0.45rem;
+  color: var(--sqr-button-text);
   cursor: pointer;
   min-width: 0;
   overflow: hidden;
@@ -438,7 +429,7 @@
 
 #sqr-panel .sqr-candidate:hover,
 #sqr-panel .sqr-refresh:hover {
-  filter: none;
+  filter: brightness(1.12);
 }
 
 #sqr-panel .sqr-refresh {
