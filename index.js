@@ -1233,9 +1233,10 @@ export function createPanel(documentImpl, callbacks = {}) {
   };
 }
 
-const DEFAULT_EVENT_TYPES = Object.freeze({
+export const DEFAULT_EVENT_TYPES = Object.freeze({
   GENERATION_STARTED: 'GENERATION_STARTED',
   GENERATION_STOPPED: 'GENERATION_STOPPED',
+  GENERATION_ENDED: 'GENERATION_ENDED',
   CHARACTER_MESSAGE_RENDERED: 'CHARACTER_MESSAGE_RENDERED',
   MESSAGE_SENT: 'MESSAGE_SENT',
   CHAT_CHANGED: 'CHAT_CHANGED',
@@ -1450,10 +1451,11 @@ export function bootstrap(context = {}) {
 
   const scheduleAutoSuggestion = interrupted => {
     if (handledStopId === generationId) return;
-    handledStopId = generationId;
     if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
     stoppedTimer = (context.setTimeout ?? globalThis.setTimeout)(() => {
       stoppedTimer = null;
+      if (handledStopId === generationId) return;
+      handledStopId = generationId;
       requestSuggestions(interrupted);
     }, 100);
   };
@@ -1494,17 +1496,20 @@ export function bootstrap(context = {}) {
   eventHandler('GENERATION_STOPPED', () => {
     generationActive = false;
     const currentSettings = getSettings();
-    const trigger = decideAutoSuggestionTrigger(currentSettings, {
-      generationActive,
-      characterRendered: characterRenderedGenerationId === generationId,
-    });
-    if (!trigger) return;
-    if (trigger.interrupted) {
-      const live = getLiveContext();
-      const last = live.chat?.at?.(-1);
-      if (!last || last.is_user) return;
-    }
-    scheduleAutoSuggestion(trigger.interrupted);
+    if (currentSettings.triggerMode !== 'auto' || !currentSettings.interruptedAutoGenerate) return;
+    const live = getLiveContext();
+    const last = live.chat?.at?.(-1);
+    if (!last || last.is_user) return;
+    scheduleAutoSuggestion(true);
+  });
+  eventHandler('GENERATION_ENDED', () => {
+    generationActive = false;
+    const currentSettings = getSettings();
+    if (currentSettings.triggerMode !== 'auto') return;
+    // SillyTavern emits GENERATION_ENDED for normal completion and also briefly
+    // while handling a manual stop. Keep this delayed so GENERATION_STOPPED can
+    // replace it with the interrupted-context path when applicable.
+    scheduleAutoSuggestion(false);
   });
   for (const name of ['CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_CREATED']) eventHandler(name, () => { coordinator.cancel(); panel.hide(); });
   eventHandler('MESSAGE_SENT', () => { if (getSettings().dismissAfterSend) panel.hide(); });

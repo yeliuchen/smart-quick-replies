@@ -15,6 +15,7 @@ import {
   readApiKey,
   writeApiKey,
   resolveRuntimeSettings,
+  DEFAULT_EVENT_TYPES,
   shouldSuggestOnCharacterRendered,
   decideAutoSuggestionTrigger,
 } from '../index.js';
@@ -32,6 +33,11 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.match(DEFAULT_SYSTEM_PROMPT, /user style examples/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /scene stagnation/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /6 consecutive user-character exchanges/);
+});
+
+test('SillyTavern completion uses GENERATION_ENDED separately from manual stop', () => {
+  assert.equal(DEFAULT_EVENT_TYPES.GENERATION_ENDED, 'GENERATION_ENDED');
+  assert.equal(DEFAULT_EVENT_TYPES.GENERATION_STOPPED, 'GENERATION_STOPPED');
 });
 
 test('mergeSettings fills missing nested values without mutating saved settings', () => {
