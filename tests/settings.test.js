@@ -60,8 +60,10 @@ test('settings markup contains all required sections and controls', () => {
 
 test('settings use one outer drawer and five independent inner drawers', () => {
   const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
-  assert.match(html, /<details[^>]*class="sqr-settings"[^>]*id="sqr-settings-root"/s);
-  assert.match(html, /<summary[^>]*data-sqr-root-toggle/);
+  assert.match(html, /<div[^>]*class="sqr-settings inline-drawer"[^>]*id="sqr-settings-root"/s);
+  assert.match(html, /<div[^>]*class="inline-drawer-toggle inline-drawer-header"[^>]*data-sqr-root-toggle/);
+  assert.match(html, /data-sqr-root-toggle[^>]*>\s*<b>智能快捷回复建议<\/b>\s*<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"><\/div>/s);
+  assert.match(html, /class="inline-drawer-content"[^>]*data-sqr-root-content[^>]*hidden/);
   assert.doesNotMatch(html, /data-sqr-tab=/);
   for (const id of ['general', 'api', 'prompt', 'context', 'appearance']) {
     assert.match(html, new RegExp(`<details[^>]*id="sqr-${id}"[^>]*data-sqr-section`));
@@ -72,8 +74,7 @@ test('settings use one outer drawer and five independent inner drawers', () => {
 
 test('settings use compact root heading and inline model and prompt toolbars', () => {
   const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
-  assert.match(html, /class="sqr-root-heading"/);
-  assert.doesNotMatch(html, /sqr-root-accent/);
+  assert.doesNotMatch(html, /<h[1-4][\s>]/i);
   assert.match(html, /class="sqr-model-toolbar"[\s\S]*id="sqr-model-search"[\s\S]*id="sqr-fetch-models"/);
   assert.match(html, /class="sqr-prompt-toolbar"[\s\S]*系统提示词[\s\S]*id="sqr-reset-prompt"/);
 });
@@ -81,12 +82,8 @@ test('settings use compact root heading and inline model and prompt toolbars', (
 test('settings layout contracts define desktop and narrow-screen toolbar rules', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   assert.match(css, /\.sqr-settings\s*\{[\s\S]*border:\s*0[;\s][\s\S]*padding:\s*0[;\s]/);
-  assert.match(css, /\.sqr-root-toggle\s*\{[\s\S]*font-size:\s*0\.95rem[;\s][\s\S]*line-height:\s*1\.5/);
-  assert.match(css, /\.sqr-root-toggle:hover,[\s\S]*background:\s*transparent/);
-  assert.match(css, /\.sqr-root-toggle-icon\s*\{[\s\S]*background:\s*var\(--SmartThemeBodyColor/);
-  assert.match(css, /\.sqr-root-toggle-icon\s*\{[\s\S]*border-radius:\s*50%/);
-  assert.match(css, /\.sqr-root-toggle-icon\s*\{[\s\S]*height:\s*1\.2rem/);
-  assert.match(css, /\.sqr-root-heading[\s\S]*display:\s*(?:flex|grid)/);
+  assert.doesNotMatch(css, /\.sqr-root-toggle[^}]*font-size/i);
+  assert.doesNotMatch(css, /\.sqr-root-toggle[^}]*line-height/i);
   assert.match(css, /\.sqr-model-toolbar[\s\S]*display:\s*(?:flex|grid)/);
   assert.match(css, /\.sqr-prompt-toolbar[\s\S]*display:\s*(?:flex|grid)/);
   assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*\.sqr-model-toolbar[\s\S]*grid-template-columns:\s*1fr/);

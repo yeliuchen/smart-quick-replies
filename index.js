@@ -552,9 +552,24 @@ export function renderSettings(container, settings = {}, handlers = {}) {
     });
   }
 
-  const details = [];
-  if (container.tagName?.toLowerCase() === 'details') details.push(container);
-  details.push(...container.querySelectorAll('[data-sqr-section]'));
+  const rootToggle = container.querySelector('[data-sqr-root-toggle]');
+  const rootContent = container.querySelector('[data-sqr-root-content]');
+  const syncRootState = () => {
+    const open = !Boolean(rootContent?.hidden);
+    rootToggle?.setAttribute('aria-expanded', String(open));
+  };
+  const toggleRoot = event => {
+    if (event?.type === 'keydown' && !['Enter', ' '].includes(event.key)) return;
+    if (event?.type === 'keydown') event.preventDefault();
+    if (!rootContent) return;
+    rootContent.hidden = !rootContent.hidden;
+    syncRootState();
+  };
+  syncRootState();
+  listen(rootToggle, 'click', toggleRoot);
+  listen(rootToggle, 'keydown', toggleRoot);
+
+  const details = [...container.querySelectorAll('[data-sqr-section]')];
   const syncDisclosureState = detailsElement => {
     const summary = detailsElement.querySelector('summary');
     summary?.setAttribute('aria-expanded', String(Boolean(detailsElement.open)));
