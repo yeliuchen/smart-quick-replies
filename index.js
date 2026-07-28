@@ -1272,25 +1272,6 @@ const PANEL_GLASS_CONFIG = {
     shadowOffsetY: 2,
 };
 
-const BUTTON_GLASS_CONFIG = {
-  blurAmount: 0.18,
-  refraction: 0.52,
-  chromAberration: 0.02,
-  edgeHighlight: 0.04,
-  specular: 0.08,
-  fresnel: 0.55,
-  cornerRadius: 9,
-  zRadius: 16,
-  opacity: 0.78,
-  saturation: -0.12,
-  tintStrength: 0.42,
-  brightness: -0.1,
-  shadowOpacity: 0.24,
-  shadowSpread: 6,
-  shadowOffsetY: 2,
-  button: true,
-};
-
 const DEFAULT_EVENT_TYPES = Object.freeze({
   GENERATION_STARTED: 'GENERATION_STARTED',
   GENERATION_STOPPED: 'GENERATION_STOPPED',
@@ -1384,9 +1365,8 @@ export function bootstrap(context = {}) {
     const start = () => {
       liquidGlassScheduleId = null;
       if (!panel.isVisible()) return;
-      liquidGlassInitPromise = Promise.allSettled([
-        initLiquidGlass(documentImpl, windowImpl, documentImpl.body, [panel.element], PANEL_GLASS_CONFIG),
-        initLiquidGlass(documentImpl, windowImpl, panel.glassRoot, panel.glassElements, BUTTON_GLASS_CONFIG),
+    liquidGlassInitPromise = Promise.allSettled([
+      initLiquidGlass(documentImpl, windowImpl, documentImpl.body, [panel.element], PANEL_GLASS_CONFIG),
       ])
         .then(results => {
           const instances = results
