@@ -1266,6 +1266,12 @@ export function shouldShowRequestError(error = {}) {
   return !(error?.name === 'AbortError' && error?.message !== 'API request timed out');
 }
 
+export function getRequestErrorMessage(error = {}) {
+  if (!shouldShowRequestError(error)) return '';
+  if (error?.name === 'AbortError') return '请求超时，请检查 API 配置或提高超时时间';
+  return error?.message || '生成失败，请检查 API 配置';
+}
+
 export function resolveApiRequestConfig(settings = {}, options = {}) {
   const api = settings.api ?? {};
   const type = detectApiType(api.url, api.type, api.autoDetect);
@@ -1452,8 +1458,9 @@ export function bootstrap(context = {}) {
         error: { name: error?.name, message: error?.message, stack: previewDebugText(error?.stack, 2000) },
         rawResponsePreview: previewDebugText(raw, 4000),
       });
-      if (!shouldShowRequestError(error)) return;
-      panel.setError(error?.name === 'AbortError' ? '请求已取消' : error?.message || '生成失败，请检查 API 配置');
+      const errorMessage = getRequestErrorMessage(error);
+      if (!errorMessage) return;
+      panel.setError(errorMessage);
       showPanel();
     } finally {
       coordinator.finish(request.id);
@@ -1493,7 +1500,6 @@ export function bootstrap(context = {}) {
     handledStopId = -1;
     characterRenderedGenerationId = -1;
     coordinator.cancel();
-    panel.hide();
   });
   eventHandler('CHARACTER_MESSAGE_RENDERED', () => {
     characterRenderedGenerationId = generationId;

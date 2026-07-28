@@ -20,6 +20,7 @@ import {
   decideAutoSuggestionTrigger,
   shouldScheduleAfterMessageReceived,
   shouldShowRequestError,
+  getRequestErrorMessage,
 } from '../index.js';
 
 test('default settings use automatic trigger, 20 messages, compression, and four candidates', () => {
@@ -141,6 +142,7 @@ test('settings CSS gives form controls theme-aware colors', () => {
   assert.match(css, /::placeholder/);
   assert.match(css, /\.sqr-horizontal-button[\s\S]*white-space:\s*nowrap/);
   assert.match(css, /\.sqr-debug-output[\s\S]*white-space:\s*pre-wrap/);
+  assert.match(css, /\.sqr-color-picker-menu\s*\{[\s\S]*background:\s*#3a3a3f/);
 });
 
 test('suggestion buttons use multiline clamping instead of single-line ellipsis', () => {
@@ -238,4 +240,6 @@ test('intentional aborts do not become visible request errors', () => {
   assert.equal(shouldShowRequestError({ name: 'AbortError', message: 'API request was cancelled' }), false);
   assert.equal(shouldShowRequestError({ name: 'AbortError', message: 'API request timed out' }), true);
   assert.equal(shouldShowRequestError({ name: 'ProviderHttpError', message: '401' }), true);
+  assert.equal(getRequestErrorMessage({ name: 'AbortError', message: 'API request timed out' }), '请求超时，请检查 API 配置或提高超时时间');
+  assert.equal(getRequestErrorMessage({ name: 'AbortError', message: 'API request was cancelled' }), '');
 });
