@@ -112,6 +112,13 @@ test('settings CSS gives form controls theme-aware colors', () => {
   assert.match(css, /::placeholder/);
 });
 
+test('suggestion buttons use multiline clamping instead of single-line ellipsis', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*-webkit-line-clamp:\s*3/);
+  assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*white-space:\s*normal/);
+  assert.doesNotMatch(css, /#sqr-panel \.sqr-candidate,[\s\S]*text-overflow:\s*ellipsis/);
+});
+
 test('drag scheduler keeps only the newest pending point until the frame runs', () => {
   const frames = [];
   const scheduler = createDragScheduler(callback => frames.push(callback));
