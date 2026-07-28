@@ -1244,48 +1244,32 @@ export function createPanel(documentImpl, callbacks = {}) {
 const LIQUID_GLASS_CDN = 'https://cdn.jsdelivr.net/npm/@ybouane/liquidglass/dist/index.js';
 
 const PANEL_GLASS_CONFIG = Object.freeze({
-  blurAmount: 0.12,
-  refraction: 0.5,
-  chromAberration: 0.02,
-  edgeHighlight: 0.05,
-  specular: 0.06,
-  fresnel: 0.6,
-  cornerRadius: 14,
-  zRadius: 18,
+  blurAmount: 0.25,
+  cornerRadius: 30,
   opacity: 0.56,
-  tintStrength: 0.08,
-  shadowOpacity: 0.18,
-  shadowSpread: 7,
-  shadowOffsetY: 2,
 });
 
 const BUTTON_GLASS_CONFIG = Object.freeze({
-  blurAmount: 0.16,
-  refraction: 0.55,
-  chromAberration: 0.02,
-  edgeHighlight: 0.05,
-  specular: 0.08,
-  fresnel: 0.58,
-  cornerRadius: 9,
-  zRadius: 14,
-  opacity: 0.84,
-  saturation: -0.18,
-  tintStrength: 0.72,
-  brightness: -0.16,
-  shadowOpacity: 0.24,
-  shadowSpread: 5,
-  shadowOffsetY: 2,
   button: true,
+  brightness: -0.3,
+  blurAmount: 0.25,
+  cornerRadius: 50,
 });
 
-export async function initReplyPanelLiquidGlass(panel) {
-  if (!panel?.element || !Array.isArray(panel.glassElements) || panel.glassElements.length < 2) return null;
-  const { LiquidGlass } = await import(LIQUID_GLASS_CDN);
+export function configureReplyPanelGlassElements(panel) {
+  if (!panel?.element || !Array.isArray(panel.glassElements) || panel.glassElements.length < 2) return false;
   const [surface, ...controls] = panel.glassElements;
   surface.dataset.config = JSON.stringify(PANEL_GLASS_CONFIG);
   controls.forEach(control => {
     control.dataset.config = JSON.stringify(BUTTON_GLASS_CONFIG);
   });
+  panel.element.style?.setProperty?.('--sqr-liquidglass-radius', `${PANEL_GLASS_CONFIG.cornerRadius}px`);
+  return true;
+}
+
+export async function initReplyPanelLiquidGlass(panel) {
+  if (!configureReplyPanelGlassElements(panel)) return null;
+  const { LiquidGlass } = await import(LIQUID_GLASS_CDN);
   const instance = await LiquidGlass.init({
     root: panel.element,
     glassElements: panel.glassElements,

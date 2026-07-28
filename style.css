@@ -347,7 +347,7 @@
   backdrop-filter: none;
   background: var(--sqr-panel-background);
   border: 0;
-  border-radius: 0;
+  border-radius: var(--sqr-liquidglass-radius, 30px);
   box-shadow: none;
   color: var(--sqr-panel-text);
   display: flex;
@@ -366,6 +366,7 @@
 
 #sqr-panel .sqr-glass-scene {
   background: var(--SmartThemeBlurTintColor, rgba(48, 52, 68, 0.5));
+  border-radius: inherit;
   inset: 0;
   pointer-events: none;
   position: absolute;
@@ -398,7 +399,7 @@
 #sqr-panel .sqr-refresh {
   background: var(--sqr-button-color);
   border: 1px solid color-mix(in srgb, var(--sqr-button-color) 70%, var(--SmartThemeBorderColor, #fff));
-  border-radius: 0.45rem;
+  border-radius: 50px;
   color: var(--sqr-button-text);
   cursor: pointer;
   min-width: 0;
@@ -413,7 +414,6 @@
 #sqr-panel.sqr-liquidglass-ready .sqr-refresh {
   background: transparent;
   border-color: transparent;
-  border-radius: 0;
 }
 
 #sqr-panel .sqr-candidate {
@@ -453,8 +453,8 @@
   text-align: center;
 }
 
-#sqr-panel .sqr-candidate:hover,
-#sqr-panel .sqr-refresh:hover {
+#sqr-panel:not(.sqr-liquidglass-ready) .sqr-candidate:hover,
+#sqr-panel:not(.sqr-liquidglass-ready) .sqr-refresh:hover {
   filter: brightness(1.12);
 }
 
