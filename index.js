@@ -774,7 +774,7 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     let payload = await fetchJson(fetchImpl, request.url, request.init, { stream: streaming });
     debug?.({ phase: 'response', attempt: 1, ...debugBase, payload: summarizeProviderPayload(payload, config.type) });
     let attempt = 1;
-  const retryBudgets = getApiType(config) === 'lmstudio' ? [512, 1024] : [256, 512, 1024];
+  const retryBudgets = getApiType(config) === 'lmstudio' ? [512, 1024, 2048] : [256, 512, 1024, 2048, 4096];
   const effectiveMaxTokens = getEffectiveMaxTokens(config);
     for (const retryMaxTokens of retryBudgets) {
       const choice = payload?.choices?.[0];

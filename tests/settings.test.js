@@ -119,6 +119,9 @@ test('settings layout contracts define desktop and narrow-screen toolbar rules',
   assert.match(css, /\.sqr-model-toolbar[\s\S]*display:\s*(?:flex|grid)/);
   assert.match(css, /\.sqr-prompt-toolbar[\s\S]*display:\s*(?:flex|grid)/);
   assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*\.sqr-model-toolbar[\s\S]*grid-template-columns:\s*1fr/);
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.match(html, /id="sqr-reset-position"[^>]*sqr-horizontal-button/);
+  assert.match(css, /\.sqr-position-row[\s\S]*#sqr-reset-position[\s\S]*writing-mode:\s*horizontal-tb/);
 });
 
 test('settings CSS gives form controls theme-aware colors', () => {

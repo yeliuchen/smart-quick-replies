@@ -232,6 +232,13 @@
   writing-mode: horizontal-tb;
 }
 
+.sqr-position-row #sqr-reset-position {
+  display: inline-flex;
+  min-width: max-content;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+}
+
 .sqr-debug-toolbar {
   align-items: center;
   display: flex;
