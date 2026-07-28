@@ -24,7 +24,9 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.equal(DEFAULT_SETTINGS.compression.enabled, true);
   assert.equal(DEFAULT_SETTINGS.compression.threshold, 3000);
   assert.equal(DEFAULT_SETTINGS.api.maxTokens, 80);
-  assert.match(DEFAULT_SYSTEM_PROMPT, /generate 4 distinct, short/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /You generate reply suggestions for the USER/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /You are NOT \{\{char\}\}/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /exactly 4 distinct/);
 });
 
 test('mergeSettings fills missing nested values without mutating saved settings', () => {
@@ -41,6 +43,13 @@ test('migrateSettings maps the first version keys into the current contract', ()
   assert.equal(migrated.historyLimit, 8);
   assert.equal(migrated.interruptedAutoGenerate, false);
   assert.equal(migrated.systemPrompt, 'custom');
+});
+
+test('migrateSettings upgrades the original default prompt to user-perspective rules', () => {
+  const migrated = migrateSettings({
+    systemPrompt: 'You are an assistant that helps the user reply to {{char}}. Given the conversation history, generate 4 distinct, short, and in-character replies that {{user}} might say next. Reply ONLY with a JSON array of 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]',
+  });
+  assert.match(migrated.systemPrompt, /You are NOT \{\{char\}\}/);
 });
 
 test('panel position clamps to the viewport with a margin', () => {

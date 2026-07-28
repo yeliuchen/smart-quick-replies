@@ -1,7 +1,20 @@
-export const DEFAULT_SYSTEM_PROMPT = 'You are an assistant that helps the user reply to {{char}}. Given the conversation history, generate 4 distinct, short, and in-character replies that {{user}} might say next. Reply ONLY with a JSON array of 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]';
+const LEGACY_SYSTEM_PROMPT = 'You are an assistant that helps the user reply to {{char}}. Given the conversation history, generate 4 distinct, short, and in-character replies that {{user}} might say next. Reply ONLY with a JSON array of 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]';
+
+export const DEFAULT_SYSTEM_PROMPT = `You generate reply suggestions for the USER, who is replying to the CHARACTER {{char}}.
+
+Your role is only to write what {{user}} could send next. You are NOT {{char}}, and you must never answer as {{char}}.
+
+Rules:
+- Generate exactly 4 distinct, short, natural messages that {{user}} can send directly to {{char}}.
+- Write from {{user}}'s first-person perspective and address {{char}}.
+- Never continue {{char}}'s dialogue, thoughts, actions, narration, or roleplay.
+- Never write stage directions, third-person narration, labels, explanations, or analysis.
+- Treat the latest character message as the message the user needs to answer.
+
+Reply ONLY with a JSON array of exactly 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]`;
 
 export const DEFAULT_SETTINGS = Object.freeze({
-  version: 1,
+  version: 2,
   triggerMode: 'auto',
   interruptedAutoGenerate: true,
   dismissAfterSend: true,
@@ -70,7 +83,8 @@ export function migrateSettings(saved = {}) {
   if (source.systemPrompt === undefined && typeof source.prompt === 'string') {
     source.systemPrompt = source.prompt;
   }
-  source.version = 1;
+  if (source.systemPrompt === LEGACY_SYSTEM_PROMPT) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
+  source.version = 2;
   return source;
 }
 
@@ -329,7 +343,7 @@ export function buildPromptMessages(systemPrompt, history = { messages: [] }, va
   return {
     system: expanded,
     messages: hasHistoryPlaceholder ? [] : historyMessages.filter(message => message?.role !== 'system'),
-    generationInstruction: 'Generate the four candidate replies now. Output ONLY a JSON array of exactly 4 short strings. Do not explain your answer.',
+    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Output ONLY a JSON array of exactly 4 short strings.',
   };
 }
 
