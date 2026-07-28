@@ -730,6 +730,7 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     model: String(config.model ?? '').trim(),
     maxTokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
     authMode: getAuthMode(config),
+    stream: shouldUseStreaming(config),
     messageCount: Array.isArray(promptData.messages) ? promptData.messages.length : 0,
   };
   debug?.({ phase: 'request', ...debugBase });
