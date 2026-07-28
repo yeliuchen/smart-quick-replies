@@ -226,6 +226,77 @@
   flex: 0 0 auto;
 }
 
+.sqr-color-picker {
+  position: relative;
+}
+
+.sqr-color-picker-toggle {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-start;
+  min-height: 2.25rem;
+  text-align: left;
+  width: 100%;
+}
+
+.sqr-color-picker-chevron {
+  margin-left: auto;
+  opacity: 0.7;
+}
+
+.sqr-color-swatch {
+  background: var(--sqr-swatch-color, var(--SmartThemeQuoteColor, #4f8cff));
+  border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.35));
+  border-radius: 0.3rem;
+  display: inline-block;
+  flex: 0 0 auto;
+  height: 1.1rem;
+  width: 1.1rem;
+}
+
+.sqr-color-swatch-theme {
+  background: linear-gradient(135deg, var(--SmartThemeQuoteColor, #4f8cff) 50%, var(--SmartThemeBodyColor, #fff) 50%);
+}
+
+.sqr-color-picker-menu {
+  background: var(--sqr-input-background);
+  border: 1px solid var(--sqr-input-border);
+  border-radius: 0.4rem;
+  box-shadow: 0 0.5rem 1.2rem rgba(0, 0, 0, 0.3);
+  display: grid;
+  gap: 0.2rem;
+  left: 0;
+  padding: 0.35rem;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.25rem);
+  z-index: 4;
+}
+
+.sqr-color-picker-menu[hidden] {
+  display: none;
+}
+
+.sqr-color-picker-menu button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0.3rem;
+  color: var(--sqr-input-text);
+  cursor: pointer;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.35rem 0.45rem;
+  text-align: left;
+  width: 100%;
+}
+
+.sqr-color-picker-menu button:hover,
+.sqr-color-picker-menu button:focus-visible {
+  background: color-mix(in srgb, var(--SmartThemeQuoteColor, #4f8cff) 20%, transparent);
+}
+
 .sqr-status {
   color: var(--sqr-muted);
   min-height: 1.2em;
@@ -242,13 +313,15 @@
   --sqr-panel-opacity: 0.94;
   --sqr-button-color: var(--SmartThemeQuoteColor, #536dfe);
   --sqr-button-text: var(--SmartThemeBodyColor, #fff);
+  --sqr-panel-background: rgba(92, 94, 102, 0.88);
+  --sqr-panel-text: var(--SmartThemeQuoteColor, #75b7ff);
   align-items: stretch;
   backdrop-filter: blur(10px);
-  background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #1b1b22) 78%, transparent);
+  background: var(--sqr-panel-background);
   border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.2));
   border-radius: 0.65rem;
   box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.28);
-  color: var(--SmartThemeBodyColor, #fff);
+  color: var(--sqr-panel-text);
   display: flex;
   gap: 0.45rem;
   max-width: min(900px, calc(100vw - 16px));

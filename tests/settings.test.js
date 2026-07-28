@@ -75,6 +75,10 @@ test('settings use one outer drawer and five independent inner drawers', () => {
 test('settings use compact root heading and inline model and prompt toolbars', () => {
   const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
   assert.doesNotMatch(html, /<h[1-4][\s>]/i);
+  assert.match(html, /id="sqr-button-color"[^>]*data-sqr-setting="appearance\.buttonColor"/);
+  assert.match(html, /id="sqr-button-text-color"[^>]*data-sqr-setting="appearance\.buttonTextColor"/);
+  assert.match(html, /data-sqr-color-picker[\s\S]*data-sqr-color-value="#4f8cff"/);
+  assert.match(html, /data-sqr-color-picker[\s\S]*data-sqr-color-value="#ffffff"/);
   assert.match(html, /class="sqr-model-toolbar"[\s\S]*id="sqr-model-search"[\s\S]*id="sqr-fetch-models"/);
   assert.match(html, /class="sqr-prompt-toolbar"[\s\S]*系统提示词[\s\S]*id="sqr-reset-prompt"/);
 });

@@ -179,14 +179,41 @@
         <span>面板透明度 <output data-sqr-output="appearance.opacity">0.94</output></span>
         <input id="sqr-opacity" type="range" min="0.4" max="1" step="0.01" value="0.94" data-sqr-setting="appearance.opacity">
       </label>
-      <label class="sqr-field">
-        <span>按钮颜色（可选）</span>
-        <input id="sqr-button-color" type="text" data-sqr-setting="appearance.buttonColor" placeholder="使用主题默认色">
-      </label>
-      <label class="sqr-field">
-        <span>按钮文字颜色（可选）</span>
-        <input id="sqr-button-text-color" type="text" data-sqr-setting="appearance.buttonTextColor" placeholder="使用主题默认色">
-      </label>
+      <div class="sqr-field sqr-color-picker" data-sqr-color-picker>
+        <span>按钮颜色</span>
+        <input id="sqr-button-color" type="hidden" data-sqr-setting="appearance.buttonColor" value="">
+        <button class="sqr-color-picker-toggle" type="button" aria-haspopup="listbox" aria-expanded="false">
+          <span class="sqr-color-swatch" data-sqr-color-preview></span>
+          <span data-sqr-color-label>主题默认色</span>
+          <span class="sqr-color-picker-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div class="sqr-color-picker-menu" role="listbox" hidden>
+          <button type="button" role="option" data-sqr-color-value="" data-sqr-color-label="主题默认色"><span class="sqr-color-swatch sqr-color-swatch-theme"></span>主题默认色</button>
+          <button type="button" role="option" data-sqr-color-value="#4f8cff" data-sqr-color-label="蓝色"><span class="sqr-color-swatch" style="--sqr-swatch-color: #4f8cff"></span>蓝色</button>
+          <button type="button" role="option" data-sqr-color-value="#5dd6d0" data-sqr-color-label="青色"><span class="sqr-color-swatch" style="--sqr-swatch-color: #5dd6d0"></span>青色</button>
+          <button type="button" role="option" data-sqr-color-value="#9b7cff" data-sqr-color-label="紫色"><span class="sqr-color-swatch" style="--sqr-swatch-color: #9b7cff"></span>紫色</button>
+          <button type="button" role="option" data-sqr-color-value="#57c785" data-sqr-color-label="绿色"><span class="sqr-color-swatch" style="--sqr-swatch-color: #57c785"></span>绿色</button>
+          <button type="button" role="option" data-sqr-color-value="#f0a45d" data-sqr-color-label="橙色"><span class="sqr-color-swatch" style="--sqr-swatch-color: #f0a45d"></span>橙色</button>
+          <button type="button" role="option" data-sqr-color-value="#858995" data-sqr-color-label="灰色"><span class="sqr-color-swatch" style="--sqr-swatch-color: #858995"></span>灰色</button>
+        </div>
+      </div>
+      <div class="sqr-field sqr-color-picker" data-sqr-color-picker>
+        <span>按钮文字颜色</span>
+        <input id="sqr-button-text-color" type="hidden" data-sqr-setting="appearance.buttonTextColor" value="">
+        <button class="sqr-color-picker-toggle" type="button" aria-haspopup="listbox" aria-expanded="false">
+          <span class="sqr-color-swatch" data-sqr-color-preview></span>
+          <span data-sqr-color-label>主题默认色</span>
+          <span class="sqr-color-picker-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div class="sqr-color-picker-menu" role="listbox" hidden>
+          <button type="button" role="option" data-sqr-color-value="" data-sqr-color-label="主题默认色"><span class="sqr-color-swatch sqr-color-swatch-theme"></span>主题默认色</button>
+          <button type="button" role="option" data-sqr-color-value="#ffffff" data-sqr-color-label="白色"><span class="sqr-color-swatch" style="--sqr-swatch-color: #ffffff"></span>白色</button>
+          <button type="button" role="option" data-sqr-color-value="#d8e9ff" data-sqr-color-label="淡蓝色"><span class="sqr-color-swatch" style="--sqr-swatch-color: #d8e9ff"></span>淡蓝色</button>
+          <button type="button" role="option" data-sqr-color-value="#20232a" data-sqr-color-label="深灰色"><span class="sqr-color-swatch" style="--sqr-swatch-color: #20232a"></span>深灰色</button>
+          <button type="button" role="option" data-sqr-color-value="#111827" data-sqr-color-label="黑色"><span class="sqr-color-swatch" style="--sqr-swatch-color: #111827"></span>黑色</button>
+          <button type="button" role="option" data-sqr-color-value="#ffe9a8" data-sqr-color-label="暖黄色"><span class="sqr-color-swatch" style="--sqr-swatch-color: #ffe9a8"></span>暖黄色</button>
+        </div>
+      </div>
       </div>
     </div>
   </details>

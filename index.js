@@ -600,6 +600,42 @@ export function renderSettings(container, settings = {}, handlers = {}) {
     if (model) save('api.model', model);
   });
 
+  for (const picker of container.querySelectorAll('[data-sqr-color-picker]')) {
+    const input = picker.querySelector('[data-sqr-setting]');
+    const toggle = picker.querySelector('.sqr-color-picker-toggle');
+    const menu = picker.querySelector('.sqr-color-picker-menu');
+    const preview = picker.querySelector('[data-sqr-color-preview]');
+    const label = picker.querySelector('[data-sqr-color-label]');
+    const syncPicker = () => {
+      const selected = [...(menu?.querySelectorAll('[data-sqr-color-value]') ?? [])]
+        .find(option => option.dataset.sqrColorValue === String(input?.value ?? ''))
+        ?? menu?.querySelector('[data-sqr-color-value=""]');
+      const color = selected?.dataset.sqrColorValue ?? '';
+      if (preview) preview.style.setProperty('--sqr-swatch-color', color || 'var(--SmartThemeQuoteColor, #4f8cff)');
+      if (label) label.textContent = selected?.dataset.sqrColorLabel ?? '主题默认色';
+    };
+    const closePicker = () => {
+      if (menu) menu.hidden = true;
+      toggle?.setAttribute('aria-expanded', 'false');
+    };
+    listen(toggle, 'click', () => {
+      if (!menu) return;
+      menu.hidden = !menu.hidden;
+      toggle?.setAttribute('aria-expanded', String(!menu.hidden));
+    });
+    for (const option of menu?.querySelectorAll('[data-sqr-color-value]') ?? []) {
+      listen(option, 'click', () => {
+        if (input) {
+          input.value = option.dataset.sqrColorValue ?? '';
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        syncPicker();
+        closePicker();
+      });
+    }
+    syncPicker();
+  }
+
   return () => listeners.splice(0).forEach(remove => remove());
 }
 
@@ -932,7 +968,20 @@ export function bootstrap(context = {}) {
   const getSettings = () => resolveRuntimeSettings(context, settings);
   const savePosition = position => positionStore.write(position);
   const getPanelPosition = () => positionStore.read();
+  const applyAppearance = appearance => {
+    const panelElement = panel.element;
+    const opacity = Number(appearance?.opacity);
+    panelElement.style.setProperty('--sqr-panel-opacity', Number.isFinite(opacity) ? String(Math.min(1, Math.max(0.4, opacity))) : '0.94');
+    for (const [property, value] of [
+      ['--sqr-button-color', appearance?.buttonColor],
+      ['--sqr-button-text', appearance?.buttonTextColor],
+    ]) {
+      if (String(value ?? '').trim()) panelElement.style.setProperty(property, String(value).trim());
+      else panelElement.style.removeProperty(property);
+    }
+  };
   const showPanel = () => {
+    applyAppearance(getSettings().appearance);
     const savedPosition = getPanelPosition();
     panel.show(savedPosition ? { position: savedPosition } : undefined);
     if (!savedPosition) {
