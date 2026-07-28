@@ -999,7 +999,8 @@ export function createRequestCoordinator(AbortControllerImpl = globalThis.AbortC
 export function resetPanelAfterCancellation(panel, cancelledRequest, hide = false) {
   if (!cancelledRequest) return false;
   panel?.setLoading?.(false);
-  if (hide) panel?.hide?.();
+  const hasCandidates = typeof panel?.hasCandidates === 'function' ? panel.hasCandidates() : true;
+  if (hide || !hasCandidates) panel?.hide?.();
   return true;
 }
 
@@ -1075,6 +1076,7 @@ export function createPanel(documentImpl, callbacks = {}) {
   };
   let position = null;
   let dragState = null;
+  let candidateCount = 0;
   const windowImpl = documentImpl.defaultView ?? globalThis.window;
   const requestFrame = typeof windowImpl?.requestAnimationFrame === 'function'
     ? windowImpl.requestAnimationFrame.bind(windowImpl)
@@ -1104,6 +1106,7 @@ export function createPanel(documentImpl, callbacks = {}) {
       button.title = value;
       button.hidden = !value;
     });
+    candidateCount = buttons.filter(button => !button.hidden).length;
     status.hidden = true;
     status.className = 'sqr-panel-status';
     status.textContent = '';
@@ -1200,6 +1203,7 @@ export function createPanel(documentImpl, callbacks = {}) {
     show,
     hide,
     setCandidates,
+    hasCandidates: () => candidateCount > 0,
     setLoading,
     setError,
     setPosition,

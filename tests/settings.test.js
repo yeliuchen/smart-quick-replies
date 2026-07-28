@@ -230,6 +230,17 @@ test('generation cancellation keeps the completed suggestion panel visible', () 
   assert.deepEqual(calls, [['loading', false]]);
 });
 
+test('cancellation hides the panel when no candidates were completed', () => {
+  const calls = [];
+  const panel = {
+    setLoading: value => calls.push(['loading', value]),
+    hide: () => calls.push(['hide']),
+    hasCandidates: () => false,
+  };
+  assert.equal(resetPanelAfterCancellation(panel, { id: 1 }, false), true);
+  assert.deepEqual(calls, [['loading', false], ['hide']]);
+});
+
 test('API keys prefer a Secrets adapter and never enter extension settings', async () => {
   const secrets = new Map();
   const context = {
