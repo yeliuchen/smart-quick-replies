@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectApiType, normalizeEndpoint, expandPrompt, parseCandidateArray, parseProviderResponse } from '../index.js';
+import { detectApiType, normalizeEndpoint, expandPrompt, parseCandidateArray, parseCandidateResults, parseProviderResponse } from '../index.js';
 
 test('auto detection recognizes Anthropic and LM Studio URLs', () => {
   assert.equal(detectApiType('https://api.anthropic.com/v1', 'openai', true), 'anthropic');
@@ -22,8 +22,13 @@ test('prompt expansion replaces names, description, and plain-text history', () 
 
 test('candidate parser removes code fences and rejects duplicates or wrong counts', () => {
   assert.deepEqual(parseCandidateArray('~~~json\n["a","b","c","d"]\n~~~'), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(parseCandidateArray('["a","b","c","d"'), ['a', 'b', 'c', 'd']);
   assert.throws(() => parseCandidateArray('["a","a","b","c"]'), /four distinct/);
   assert.throws(() => parseCandidateArray('["a","b"]'), /four distinct/);
+});
+
+test('candidate parser explains when the provider did not return four usable replies', () => {
+  assert.throws(() => parseCandidateResults('The model returned a normal paragraph instead of JSON.'), error => /JSON array|format/i.test(error.message));
 });
 
 test('candidate parser accepts four markdown Option lines from reasoning models', () => {
@@ -56,11 +61,11 @@ test('candidate parser prefers final Reply lines over reasoning-only option desc
   assert.deepEqual(parseCandidateArray(text), ['Reply one', 'Reply two', 'Reply three', 'Reply four']);
 });
 
-test('LM Studio suggestion response can include reasoning content for parsing', () => {
+test('provider response ignores reasoning content and uses standard content only', () => {
   const text = parseProviderResponse({
     choices: [{ message: { content: '```json\n[', reasoning_content: '* Reply 1: "one"\n* Reply 2: "two"\n* Reply 3: "three"\n* Reply 4: "four"' } }],
-  }, 'lmstudio', { includeReasoning: true });
-  assert.match(text, /Reply 4/);
+  }, 'lmstudio');
+  assert.equal(text, '```json\n[');
 });
 
 test('candidate parser accepts numbered replies recovered from reasoning content', () => {
@@ -98,4 +103,18 @@ test('candidate parser removes outer quotes and acting metadata', () => {
     '3. "Reply three" (Draft)',
     '4. "Reply four"',
   ].join('\n')), ['Reply one', 'Reply two', 'Reply three', 'Reply four']);
+});
+
+test('candidate results accept reply objects and return plain replies', () => {
+  assert.deepEqual(parseCandidateResults(JSON.stringify([
+    { reply: 'Stay with the current topic.' },
+    { reply: 'Ask what happens next.' },
+    { reply: 'Tease the character gently.' },
+    { reply: 'Offer a small new action.' },
+  ])), [
+    'Stay with the current topic.',
+    'Ask what happens next.',
+    'Tease the character gently.',
+    'Offer a small new action.',
+  ]);
 });

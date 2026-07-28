@@ -10,12 +10,20 @@ import {
   getDefaultPanelPosition,
   createPositionStore,
   createRequestCoordinator,
+  resetPanelAfterCancellation,
   createDragScheduler,
   getApiKeyStorageMode,
   readApiKey,
   writeApiKey,
   resolveRuntimeSettings,
+  DEFAULT_EVENT_TYPES,
   shouldSuggestOnCharacterRendered,
+  decideAutoSuggestionTrigger,
+  shouldScheduleAfterMessageReceived,
+  getLatestCharacterMessageKey,
+  shouldDismissAfterMessageSent,
+  shouldShowRequestError,
+  getRequestErrorMessage,
 } from '../index.js';
 
 test('default settings use automatic trigger, 20 messages, compression, and four candidates', () => {
@@ -23,11 +31,20 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.equal(DEFAULT_SETTINGS.historyLimit, 20);
   assert.equal(DEFAULT_SETTINGS.compression.enabled, true);
   assert.equal(DEFAULT_SETTINGS.compression.threshold, 3000);
-  assert.equal(DEFAULT_SETTINGS.api.maxTokens, 80);
+  assert.equal(DEFAULT_SETTINGS.api.maxTokens, 2048);
+  assert.equal(DEFAULT_SETTINGS.api.timeoutMs, 120000);
+  assert.equal(DEFAULT_SETTINGS.api.authMode, 'bearer');
   assert.match(DEFAULT_SYSTEM_PROMPT, /You generate reply suggestions for the USER/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /You are NOT \{\{char\}\}/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /exactly 4 distinct/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /user style examples/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /30 Chinese characters/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /never exceed 40 Chinese characters/);
+});
+
+test('SillyTavern completion uses GENERATION_ENDED separately from manual stop', () => {
+  assert.equal(DEFAULT_EVENT_TYPES.GENERATION_ENDED, 'GENERATION_ENDED');
+  assert.equal(DEFAULT_EVENT_TYPES.GENERATION_STOPPED, 'GENERATION_STOPPED');
 });
 
 test('mergeSettings fills missing nested values without mutating saved settings', () => {
@@ -46,11 +63,37 @@ test('migrateSettings maps the first version keys into the current contract', ()
   assert.equal(migrated.systemPrompt, 'custom');
 });
 
+test('migrateSettings raises the old low token default for suggestion generation', () => {
+  assert.equal(migrateSettings({ api: { maxTokens: 80 } }).api.maxTokens, 2048);
+  assert.equal(migrateSettings({ api: { maxTokens: 81 } }).api.maxTokens, 2048);
+  assert.equal(migrateSettings({ version: 2, api: { maxTokens: 512 } }).api.maxTokens, 2048);
+  assert.equal(migrateSettings({ api: { maxTokens: 256 } }).api.maxTokens, 256);
+});
+
+test('settings expose 2048 as the default max token value', () => {
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.match(html, /id="sqr-max-tokens"[^>]*max="4096"[^>]*value="2048"/);
+});
+
+test('settings expose a 120 second default request timeout', () => {
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.match(html, /id="sqr-timeout"[^>]*max="180"[^>]*value="120"/);
+  assert.equal(migrateSettings({ version: 4, api: { timeoutMs: 30000 } }).api.timeoutMs, 120000);
+});
+
 test('migrateSettings upgrades the original default prompt to user-perspective rules', () => {
   const migrated = migrateSettings({
     systemPrompt: 'You are an assistant that helps the user reply to {{char}}. Given the conversation history, generate 4 distinct, short, and in-character replies that {{user}} might say next. Reply ONLY with a JSON array of 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]',
   });
   assert.match(migrated.systemPrompt, /You are NOT \{\{char\}\}/);
+});
+
+test('migrateSettings upgrades older default prompts with the short-reply limit', () => {
+  const migrated = migrateSettings({
+    version: 3,
+    systemPrompt: DEFAULT_SYSTEM_PROMPT.replace(/- Keep every reply very short:[\s\S]*?\n/, ''),
+  });
+  assert.match(migrated.systemPrompt, /30 Chinese characters/);
 });
 
 test('panel position clamps to the viewport with a margin', () => {
@@ -63,7 +106,7 @@ test('default panel position is directly above the input', () => {
 
 test('settings markup contains all required sections and controls', () => {
   const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
-  for (const id of ['sqr-general', 'sqr-api', 'sqr-prompt', 'sqr-context', 'sqr-appearance', 'sqr-trigger-mode', 'sqr-api-type', 'sqr-api-url', 'sqr-api-key', 'sqr-model', 'sqr-fetch-models', 'sqr-system-prompt', 'sqr-reset-prompt', 'sqr-reset-position', 'sqr-history-limit', 'sqr-compression-strategy']) {
+  for (const id of ['sqr-general', 'sqr-api', 'sqr-prompt', 'sqr-context', 'sqr-appearance', 'sqr-debug', 'sqr-trigger-mode', 'sqr-api-type', 'sqr-api-auth-mode', 'sqr-api-url', 'sqr-api-key', 'sqr-model', 'sqr-fetch-models', 'sqr-system-prompt', 'sqr-reset-prompt', 'sqr-reset-position', 'sqr-history-limit', 'sqr-compression-strategy', 'sqr-debug-output', 'sqr-clear-debug']) {
     assert.match(html, new RegExp('id=["\\\']' + id + '["\\\']'));
   }
 });
@@ -75,11 +118,20 @@ test('settings use one outer drawer and five independent inner drawers', () => {
   assert.match(html, /data-sqr-root-toggle[^>]*>\s*<b>智能快捷回复建议<\/b>\s*<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"><\/div>/s);
   assert.match(html, /class="inline-drawer-content"[^>]*data-sqr-root-content[^>]*hidden/);
   assert.doesNotMatch(html, /data-sqr-tab=/);
-  for (const id of ['general', 'api', 'prompt', 'context', 'appearance']) {
+  for (const id of ['general', 'api', 'prompt', 'context', 'appearance', 'debug']) {
     assert.match(html, new RegExp(`<details[^>]*id="sqr-${id}"[^>]*data-sqr-section`));
     assert.match(html, new RegExp(`data-sqr-collapse="sqr-${id}"`));
     assert.match(html, new RegExp(`id="sqr-${id}"[^>]*>(?:\\s|.)*?<summary`));
   }
+});
+
+test('settings declare the complete Lucide icon inventory without legacy icons', () => {
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.equal((html.match(/data-lucide="chevron-down"/g) ?? []).length, 8);
+  for (const icon of ['map-pin-off', 'list-restart', 'undo-2', 'trash-2']) {
+    assert.match(html, new RegExp(`data-lucide="${icon}"`));
+  }
+  assert.doesNotMatch(html, /<summary[\s\S]*?fa-solid|<summary[\s\S]*?fa-circle-chevron-down|>\s*▾\s*</);
 });
 
 test('settings use compact root heading and inline model and prompt toolbars', () => {
@@ -87,10 +139,18 @@ test('settings use compact root heading and inline model and prompt toolbars', (
   assert.doesNotMatch(html, /<h[1-4][\s>]/i);
   assert.match(html, /id="sqr-button-color"[^>]*data-sqr-setting="appearance\.buttonColor"/);
   assert.match(html, /id="sqr-button-text-color"[^>]*data-sqr-setting="appearance\.buttonTextColor"/);
+  assert.match(html, /<option value="google">Google Gemini/);
+  assert.match(html, /id="sqr-reset-prompt"[^>]*sqr-horizontal-button/);
   assert.match(html, /data-sqr-color-picker[\s\S]*data-sqr-color-value="#4f8cff"/);
   assert.match(html, /data-sqr-color-picker[\s\S]*data-sqr-color-value="#ffffff"/);
   assert.match(html, /class="sqr-model-toolbar"[\s\S]*id="sqr-model-search"[\s\S]*id="sqr-fetch-models"/);
   assert.match(html, /class="sqr-prompt-toolbar"[\s\S]*系统提示词[\s\S]*id="sqr-reset-prompt"/);
+});
+
+test('button color setting is labeled as a LiquidGlass fallback', () => {
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.match(html, /<span>备用按钮颜色（玻璃无法加载时）<\/span>\s*<input id="sqr-button-color"/);
+  assert.doesNotMatch(html, /<span>按钮颜色<\/span>\s*<input id="sqr-button-color"/);
 });
 
 test('settings layout contracts define desktop and narrow-screen toolbar rules', () => {
@@ -101,6 +161,9 @@ test('settings layout contracts define desktop and narrow-screen toolbar rules',
   assert.match(css, /\.sqr-model-toolbar[\s\S]*display:\s*(?:flex|grid)/);
   assert.match(css, /\.sqr-prompt-toolbar[\s\S]*display:\s*(?:flex|grid)/);
   assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*\.sqr-model-toolbar[\s\S]*grid-template-columns:\s*1fr/);
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.match(html, /id="sqr-reset-position"[^>]*sqr-horizontal-button/);
+  assert.match(css, /\.sqr-position-row[\s\S]*#sqr-reset-position[\s\S]*writing-mode:\s*horizontal-tb/);
 });
 
 test('settings CSS gives form controls theme-aware colors', () => {
@@ -110,13 +173,42 @@ test('settings CSS gives form controls theme-aware colors', () => {
   assert.match(css, /background:\s*var\(--sqr-input-background/);
   assert.match(css, /color:\s*var\(--sqr-input-text/);
   assert.match(css, /::placeholder/);
+  assert.match(css, /\.sqr-horizontal-button[\s\S]*white-space:\s*nowrap/);
+  assert.match(css, /\.sqr-debug-output[\s\S]*white-space:\s*pre-wrap/);
+  assert.match(css, /\.sqr-color-picker-menu\s*\{[\s\S]*background:\s*#3a3a3f/);
+  assert.match(css, /\.sqr-color-picker-toggle\s*\{[\s\S]*background:\s*#3a3a3f[\s\S]*color:/);
+  assert.match(css, /\.sqr-settings-section:not\(\[open\]\)\s*\{[\s\S]*margin-top:\s*0\.1rem[\s\S]*padding:\s*0\.35rem\s+0\.8rem\s+0\.15rem/);
+  assert.match(css, /\.sqr-settings-section:not\(\[open\]\)[\s\S]*padding-bottom:\s*0\.15rem/);
+  assert.match(css, /\.sqr-settings-section:not\(\[open\]\)\s*>\s*\.sqr-section-toggle[\s\S]*margin-bottom:\s*0/);
 });
 
 test('suggestion buttons use multiline clamping instead of single-line ellipsis', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
-  assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*-webkit-line-clamp:\s*3/);
-  assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*white-space:\s*normal/);
-  assert.doesNotMatch(css, /#sqr-panel \.sqr-candidate,[\s\S]*text-overflow:\s*ellipsis/);
+  const candidateRule = css.match(/#sqr-panel \.sqr-candidate\s*\{([^}]*)\}/)?.[1] ?? '';
+  const textRule = css.match(/#sqr-panel \.sqr-candidate-text\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  assert.match(candidateRule, /display:\s*flex/);
+  assert.doesNotMatch(candidateRule, /-webkit-box|-webkit-line-clamp|white-space|overflow-wrap/);
+  assert.match(candidateRule, /min-height:\s*0/);
+  assert.match(textRule, /display:\s*-webkit-box/);
+  assert.match(textRule, /-webkit-box-orient:\s*vertical/);
+  assert.match(textRule, /-webkit-line-clamp:\s*3/);
+  assert.match(textRule, /overflow:\s*hidden/);
+  assert.match(textRule, /overflow-wrap:\s*anywhere/);
+  assert.match(textRule, /white-space:\s*normal/);
+  assert.doesNotMatch(textRule, /text-overflow:\s*ellipsis/);
+});
+
+test('fallback button background consumes user color without tinting ready glass', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  const panelRule = css.match(/#sqr-panel\s*\{([^}]*)\}/)?.[1] ?? '';
+  const fallbackControls = css.match(/#sqr-panel \.sqr-candidate,\s*#sqr-panel \.sqr-refresh\s*\{([^}]*)\}/)?.[1] ?? '';
+  const readyControls = css.match(/#sqr-panel\.sqr-liquidglass-ready \.sqr-candidate,\s*#sqr-panel\.sqr-liquidglass-ready \.sqr-refresh\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  assert.match(panelRule, /--sqr-control-background:\s*color-mix\([^;]*rgba\(24,\s*26,\s*32,[^)]+\)\s+88%,\s*var\(--sqr-button-color\)\s+12%\)/);
+  assert.match(fallbackControls, /background:\s*var\(--sqr-control-background\)/);
+  assert.match(readyControls, /background:\s*transparent/);
+  assert.doesNotMatch(readyControls, /sqr-button-color|sqr-control-background|color-mix/);
 });
 
 test('loading state hides empty candidates and centers its status', () => {
@@ -145,14 +237,48 @@ test('position store persists, reads, and clears JSON coordinates', () => {
   assert.equal(store.read(), null);
 });
 
-test('request coordinator makes only the newest request current', () => {
+test('request coordinator reuses an active request instead of duplicating it', () => {
   const coordinator = createRequestCoordinator();
   const first = coordinator.begin();
   const second = coordinator.begin();
-  assert.equal(coordinator.isCurrent(first.id), false);
-  assert.equal(coordinator.isCurrent(second.id), true);
+  assert.equal(second.id, first.id);
+  assert.equal(second.reused, true);
+  assert.equal(coordinator.isCurrent(first.id), true);
   coordinator.cancel();
-  assert.equal(coordinator.isCurrent(second.id), false);
+  assert.equal(coordinator.isCurrent(first.id), false);
+});
+
+test('cancelled suggestion requests clear the loading panel state', () => {
+  const calls = [];
+  const panel = {
+    setLoading: value => calls.push(['loading', value]),
+    hide: () => calls.push(['hide']),
+  };
+  assert.equal(resetPanelAfterCancellation(panel, { id: 1 }, true), true);
+  assert.deepEqual(calls, [['loading', false], ['hide']]);
+  assert.equal(resetPanelAfterCancellation(panel, null, true), false);
+  assert.deepEqual(calls, [['loading', false], ['hide']]);
+});
+
+test('generation cancellation keeps the completed suggestion panel visible', () => {
+  const calls = [];
+  const panel = {
+    setLoading: value => calls.push(['loading', value]),
+    hide: () => calls.push(['hide']),
+  };
+  assert.equal(resetPanelAfterCancellation(panel, { id: 1 }, false), true);
+  assert.deepEqual(calls, [['loading', false]]);
+});
+
+test('cancellation hides the panel when no candidates were completed', () => {
+  const calls = [];
+  const panel = {
+    setLoading: value => calls.push(['loading', value]),
+    hide: () => calls.push(['hide']),
+    hasCandidates: () => false,
+  };
+  assert.equal(resetPanelAfterCancellation(panel, { id: 1 }, false), true);
+  assert.deepEqual(calls, [['loading', false], ['hide']]);
 });
 
 test('API keys prefer a Secrets adapter and never enter extension settings', async () => {
@@ -164,6 +290,40 @@ test('API keys prefer a Secrets adapter and never enter extension settings', asy
   assert.equal(getApiKeyStorageMode(context), 'secrets');
   assert.equal(await writeApiKey(context, 'openai', 'secret-value'), 'secrets');
   assert.equal(await readApiKey(context, 'openai'), 'secret-value');
+});
+
+test('API key reads the local fallback when Secrets is present but empty', async () => {
+  const values = new Map([['smart-quick-replies.secret.apiKey.openai', 'fallback-value']]);
+  const context = {
+    getSecret: () => '',
+    storage: {
+      getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+      removeItem: key => values.delete(key),
+    },
+  };
+  assert.equal(await readApiKey(context, 'openai'), 'fallback-value');
+});
+
+test('clearing a Secrets API key removes a stale local fallback', async () => {
+  const values = new Map([['smart-quick-replies.secret.apiKey.openai', 'fallback-value']]);
+  const secrets = new Map();
+  const context = {
+    getSecret: key => secrets.get(key) ?? '',
+    setSecret: (key, value) => secrets.set(key, value),
+    storage: {
+      getItem: key => values.get(key) ?? null,
+      removeItem: key => values.delete(key),
+    },
+  };
+  await writeApiKey(context, 'openai', '');
+  assert.equal(values.has('smart-quick-replies.secret.apiKey.openai'), false);
+});
+
+test('settings bind API key input and blur persistence hooks', () => {
+  const source = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+  assert.match(source, /keyInput\.addEventListener\('input'/);
+  assert.match(source, /keyInput\.addEventListener\('blur'/);
 });
 
 test('runtime settings prefer the latest persisted extension settings', () => {
@@ -181,4 +341,41 @@ test('character render suggestions wait until the main generation stops', () => 
   assert.equal(shouldSuggestOnCharacterRendered({ triggerMode: 'auto' }, true), false);
   assert.equal(shouldSuggestOnCharacterRendered({ triggerMode: 'auto' }, false), true);
   assert.equal(shouldSuggestOnCharacterRendered({ triggerMode: 'manual' }, false), false);
+});
+
+test('auto suggestions trigger after either render-before-stop or stop-only interruption', () => {
+  assert.deepEqual(decideAutoSuggestionTrigger({ triggerMode: 'auto', interruptedAutoGenerate: true }, { generationActive: true, characterRendered: true }), null);
+  assert.deepEqual(decideAutoSuggestionTrigger({ triggerMode: 'auto', interruptedAutoGenerate: true }, { generationActive: false, characterRendered: true }), { interrupted: false });
+  assert.deepEqual(decideAutoSuggestionTrigger({ triggerMode: 'auto', interruptedAutoGenerate: true }, { generationActive: false, characterRendered: false }), { interrupted: true });
+  assert.equal(decideAutoSuggestionTrigger({ triggerMode: 'manual', interruptedAutoGenerate: true }, { generationActive: false, characterRendered: true }), null);
+});
+
+test('message receipt can provide a completed-character auto-trigger fallback', () => {
+  assert.equal(shouldScheduleAfterMessageReceived({ triggerMode: 'auto' }, { generationActive: false, hasCharacterMessage: true }), true);
+  assert.equal(shouldScheduleAfterMessageReceived({ triggerMode: 'auto' }, { generationActive: true, hasCharacterMessage: true }), false);
+  assert.equal(shouldScheduleAfterMessageReceived({ triggerMode: 'manual' }, { generationActive: false, hasCharacterMessage: true }), false);
+});
+
+test('automatic suggestion deduplication keys the latest character message', () => {
+  const chat = [
+    { is_user: true, mes: 'Hi' },
+    { is_user: false, mes: 'Hello' },
+  ];
+  assert.equal(getLatestCharacterMessageKey(chat), '1:Hello');
+  assert.equal(getLatestCharacterMessageKey([...chat, { is_user: true, mes: 'Next' }]), '');
+  assert.notEqual(getLatestCharacterMessageKey([...chat, { is_user: false, mes: 'Hello again' }]), getLatestCharacterMessageKey(chat));
+});
+
+test('message sent dismissal ignores events while the latest message is from the character', () => {
+  assert.equal(shouldDismissAfterMessageSent({ dismissAfterSend: true }, { latestMessageIsUser: true }), true);
+  assert.equal(shouldDismissAfterMessageSent({ dismissAfterSend: true }, { latestMessageIsUser: false }), false);
+  assert.equal(shouldDismissAfterMessageSent({ dismissAfterSend: false }, { latestMessageIsUser: true }), false);
+});
+
+test('intentional aborts do not become visible request errors', () => {
+  assert.equal(shouldShowRequestError({ name: 'AbortError', message: 'API request was cancelled' }), false);
+  assert.equal(shouldShowRequestError({ name: 'AbortError', message: 'API request timed out' }), true);
+  assert.equal(shouldShowRequestError({ name: 'ProviderHttpError', message: '401' }), true);
+  assert.equal(getRequestErrorMessage({ name: 'AbortError', message: 'API request timed out' }), '请求超时，请检查 API 配置或提高超时时间');
+  assert.equal(getRequestErrorMessage({ name: 'AbortError', message: 'API request was cancelled' }), '');
 });

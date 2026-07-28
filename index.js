@@ -1,3 +1,5 @@
+import { createLucideIcon, hydrateLucideIcons } from './icons.js';
+
 const LEGACY_SYSTEM_PROMPT = 'You are an assistant that helps the user reply to {{char}}. Given the conversation history, generate 4 distinct, short, and in-character replies that {{user}} might say next. Reply ONLY with a JSON array of 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]';
 
 export const DEFAULT_SYSTEM_PROMPT = `You generate reply suggestions for the USER, who is replying to the CHARACTER {{char}}.
@@ -6,18 +8,20 @@ Your role is only to write what {{user}} could send next. You are NOT {{char}}, 
 
 Rules:
 - Generate exactly 4 distinct, short, natural messages that {{user}} can send directly to {{char}}.
+- Keep every reply to one short sentence, preferably under 30 Chinese characters (or 15 words); never exceed 40 Chinese characters (or 20 words).
 - Write from {{user}}'s first-person perspective and address {{char}}.
 - Match the user's demonstrated wording, sentence length, punctuation, directness, and emotional tone from the user style examples.
 - Use the examples only as a style reference; do not copy their subject matter or sentences.
 - Never continue {{char}}'s dialogue, thoughts, actions, narration, or roleplay.
 - Never write stage directions, third-person narration, labels, explanations, or analysis.
+- Return exactly 4 distinct JSON strings.
 - Return message text only: do not wrap a reply in quotation marks and do not append labels such as "Acting", "Draft", "Option", or style explanations.
 - Treat the latest character message as the message the user needs to answer.
 
 Reply ONLY with a JSON array of exactly 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]`;
 
 export const DEFAULT_SETTINGS = Object.freeze({
-  version: 2,
+  version: 4,
   triggerMode: 'auto',
   interruptedAutoGenerate: true,
   dismissAfterSend: true,
@@ -28,13 +32,14 @@ export const DEFAULT_SETTINGS = Object.freeze({
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   api: {
     type: 'openai',
+    authMode: 'bearer',
     autoDetect: true,
     url: 'http://localhost:1234/v1',
     model: '',
     temperature: 0.9,
-    maxTokens: 80,
+    maxTokens: 2048,
     topP: 0.95,
-    timeoutMs: 30000,
+    timeoutMs: 120000,
   },
   compression: {
     enabled: true,
@@ -91,9 +96,14 @@ export function migrateSettings(saved = {}) {
     && !source.systemPrompt.includes('user style examples')
     || typeof source.systemPrompt === 'string'
       && source.systemPrompt.includes('user style examples')
-      && !source.systemPrompt.includes('do not wrap a reply');
+      && (!source.systemPrompt.includes('do not wrap a reply')
+        || !source.systemPrompt.includes('Return exactly 4 distinct JSON strings')
+        || !source.systemPrompt.includes('30 Chinese characters'));
   if (source.systemPrompt === LEGACY_SYSTEM_PROMPT || usesPreviousDefault) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
-  source.version = 2;
+  if (isPlainObject(source.api) && Number(source.api.maxTokens) > 0 && Number(source.api.maxTokens) <= 128) source.api.maxTokens = 2048;
+  if (isPlainObject(source.api) && Number(source.version ?? 0) < 3 && Number(source.api.maxTokens) === 512) source.api.maxTokens = 2048;
+  if (isPlainObject(source.api) && Number(source.version ?? 0) < 5 && Number(source.api.timeoutMs) === 30000) source.api.timeoutMs = 120000;
+  source.version = 5;
   return source;
 }
 
@@ -129,6 +139,7 @@ export function getDefaultPanelPosition(inputRect, panelSize, viewport, margin =
 export function detectApiType(url, selectedType = 'openai', autoDetect = true) {
   if (!autoDetect) return selectedType;
   const value = String(url || '').toLowerCase();
+  if (value.includes('generativelanguage.googleapis.com') || value.includes('googleapis.com/v1beta')) return 'google';
   if (value.includes('anthropic') || value.includes('/messages')) return 'anthropic';
   if (value.includes('lmstudio') || value.includes('localhost:1234') || value.includes('127.0.0.1:1234') || value.includes('/api/v1')) return 'lmstudio';
   return 'openai';
@@ -136,13 +147,23 @@ export function detectApiType(url, selectedType = 'openai', autoDetect = true) {
 
 const trimUrl = url => String(url || '').trim().replace(/\/+$/, '');
 
-export function normalizeEndpoint(url, apiType, kind = 'completion') {
+export function normalizeEndpoint(url, apiType, kind = 'completion', model = '') {
   let base = trimUrl(url);
   if (!base) return '';
   if (kind === 'models') {
+    if (apiType === 'google') {
+      if (/\/models$/i.test(base)) return base;
+      if (/\/models\//i.test(base)) base = base.replace(/\/models\/.*$/i, '');
+      return `${base}/models`;
+    }
     if (/\/models$/i.test(base)) return base;
     if (/\/chat\/completions$/i.test(base)) base = base.replace(/\/chat\/completions$/i, '');
     return /\/v1$/i.test(base) ? `${base}/models` : `${base}/v1/models`;
+  }
+  if (apiType === 'google') {
+    if (/:generateContent$/i.test(base)) return base;
+    if (/\/models\//i.test(base)) return `${base}:generateContent`;
+    return `${base}/models/${encodeURIComponent(String(model || '').trim())}:generateContent`;
   }
   if (apiType === 'anthropic') {
     if (/\/messages$/i.test(base)) return base;
@@ -165,7 +186,7 @@ export function expandPrompt(template, values = {}) {
 }
 
 export class InvalidCandidateError extends Error {
-  constructor(message = 'Response must contain four distinct non-empty replies') {
+  constructor(message = 'Response format invalid: expected a JSON array of four distinct non-empty replies') {
     super(message);
     this.name = 'InvalidCandidateError';
   }
@@ -232,6 +253,38 @@ const extractNumberedReplies = text => {
   return [1, 2, 3, 4].map(index => replies.get(index));
 };
 
+const extractCompleteStringItems = text => {
+  const source = removeCodeFences(text);
+  const start = source.indexOf('[');
+  if (start < 0) return null;
+  const items = [];
+  let index = start + 1;
+  while (index < source.length && items.length < 4) {
+    while (/\s|,/.test(source[index] ?? '')) index += 1;
+    if (source[index] !== '"') return null;
+    const itemStart = index;
+    index += 1;
+    let escaped = false;
+    while (index < source.length) {
+      const character = source[index];
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') {
+        index += 1;
+        break;
+      }
+      index += 1;
+    }
+    if (source[index - 1] !== '"') return null;
+    try {
+      items.push(JSON.parse(source.slice(itemStart, index)));
+    } catch {
+      return null;
+    }
+  }
+  return items.length === 4 ? items : null;
+};
+
 const normalizeCandidateText = value => String(value ?? '')
   .trim()
   .replace(/^\s*["“「『]+/, '')
@@ -240,11 +293,17 @@ const normalizeCandidateText = value => String(value ?? '')
   .trim();
 
 const validateCandidates = parsed => {
-  if (!Array.isArray(parsed) || parsed.length !== 4 || parsed.some(item => typeof item !== 'string' || !item.trim())) return null;
-  const candidates = parsed.map(normalizeCandidateText);
+  if (!Array.isArray(parsed) || parsed.length !== 4) return null;
+  const candidates = parsed.map(item => normalizeCandidateText(
+    typeof item === 'string' ? item : item?.reply ?? item?.text ?? item?.content ?? '',
+  ));
   if (candidates.some(candidate => !candidate)) return null;
   return new Set(candidates).size === 4 ? candidates : null;
 };
+
+export function parseCandidateResults(text) {
+  return parseCandidateArray(text);
+}
 
 export function parseCandidateArray(text) {
   try {
@@ -253,6 +312,8 @@ export function parseCandidateArray(text) {
   } catch {
     // Fall through to the Markdown option parser for reasoning-model output.
   }
+  const recoveredStrings = validateCandidates(extractCompleteStringItems(text));
+  if (recoveredStrings) return recoveredStrings;
   const replyLines = validateCandidates(extractReplyLines(text));
   if (replyLines) return replyLines;
   const numberedReplies = validateCandidates(extractNumberedReplies(text));
@@ -387,31 +448,66 @@ export function buildPromptMessages(systemPrompt, history = { messages: [] }, va
   return {
     system: expanded,
     messages: hasHistoryPlaceholder ? [] : historyMessages.filter(message => message?.role !== 'system'),
-    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. Output ONLY a JSON array of exactly 4 short strings.',
+    responseFormat: 'suggestions',
+    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Keep each reply to one short sentence, preferably under 30 Chinese characters or 15 words, and never over 40 Chinese characters or 20 words. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. Output ONLY a JSON array of exactly 4 distinct strings.',
   };
 }
 
-const getApiType = config => String(config?.type || 'openai').toLowerCase() === 'anthropic' ? 'anthropic' : String(config?.type || 'openai').toLowerCase();
+const getApiType = config => String(config?.type || 'openai').toLowerCase();
 
 const getApiKey = config => String(config?.key ?? config?.apiKey ?? '').trim();
 
-const buildProviderHeaders = (config, signal) => {
+const getAuthMode = config => String(config?.authMode || 'bearer').toLowerCase();
+
+export function shouldUseStreaming(config = {}) {
+  return Boolean(config.stream) || /(?:假流式|fake[-_ ]?stream|streaming)/i.test(String(config.model ?? ''));
+}
+
+export function getEffectiveMaxTokens(config = {}) {
+  const requested = Math.max(1, Number(config.maxTokens ?? config.max_tokens ?? 80) || 80);
+  const minimum = shouldUseStreaming(config)
+    ? 1024
+    : getApiType(config) === 'lmstudio'
+      ? 512
+      : 256;
+  return Math.max(requested, minimum);
+}
+
+const buildProviderHeaders = config => {
   const type = getApiType(config);
   const key = getApiKey(config);
-  const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
-  if (signal) headers.signal = signal;
-  if (type === 'anthropic') {
+  const headers = { 'Content-Type': 'application/json', Accept: shouldUseStreaming(config) ? 'text/event-stream' : 'application/json' };
+  if (type === 'google') {
+    if (key) headers['x-goog-api-key'] = key;
+  } else if (type === 'anthropic') {
     headers['anthropic-version'] = '2023-06-01';
     if (key) headers['x-api-key'] = key;
-  } else if (key) {
+  } else if (key && getAuthMode(config) === 'x-api-key') {
+    headers['x-api-key'] = key;
+  } else if (key && getAuthMode(config) !== 'none') {
     headers.Authorization = `Bearer ${key}`;
   }
   return headers;
 };
 
+const toGoogleContents = (messages, generationInstruction) => {
+  const source = [...(Array.isArray(messages) ? messages : []), ...(generationInstruction ? [{ role: 'user', content: generationInstruction }] : [])]
+    .filter(message => message?.role !== 'system' && String(message?.content ?? '').trim())
+    .map(message => ({
+      role: message.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: String(message.content).trim() }],
+    }));
+  return source.reduce((result, message) => {
+    const previous = result.at(-1);
+    if (previous?.role === message.role) previous.parts.push(...message.parts);
+    else result.push(message);
+    return result;
+  }, []);
+};
+
 export function buildCompletionRequest(config = {}, promptData = {}, signal) {
   const type = getApiType(config);
-  const url = normalizeEndpoint(config.url, type, 'completion');
+  const url = normalizeEndpoint(config.url, type, 'completion', config.model);
   const system = String(promptData.system ?? '').trim();
   const historyMessages = Array.isArray(promptData.messages) ? promptData.messages : [];
   const generationInstruction = String(promptData.generationInstruction ?? '').trim();
@@ -422,17 +518,43 @@ export function buildCompletionRequest(config = {}, promptData = {}, signal) {
     temperature: Number(config.temperature ?? 0.9),
     top_p: Number(config.topP ?? config.top_p ?? 0.95),
   };
-  const body = type === 'anthropic'
+  const body = type === 'google'
+    ? {
+      ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+      contents: toGoogleContents(historyMessages, generationInstruction),
+      generationConfig: {
+        temperature: Number(config.temperature ?? 0.9),
+        topP: Number(config.topP ?? config.top_p ?? 0.95),
+      maxOutputTokens: getEffectiveMaxTokens(config),
+      },
+    }
+    : type === 'anthropic'
     ? {
       ...common,
-      max_tokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
+      max_tokens: getEffectiveMaxTokens(config),
       ...(system ? { system } : {}),
       messages: historyMessages,
     }
     : {
       ...common,
-      max_tokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
-      stream: false,
+      max_tokens: getEffectiveMaxTokens(config),
+      stream: shouldUseStreaming(config),
+      ...(type === 'lmstudio' ? { reasoning: false } : {}),
+      ...(type === 'lmstudio' && promptData.responseFormat === 'suggestions' ? {
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'smart_quick_replies',
+            strict: true,
+            schema: {
+              type: 'array',
+              minItems: 4,
+              maxItems: 4,
+              items: { type: 'string', minLength: 1 },
+            },
+          },
+        },
+      } : {}),
       messages,
     };
   const headers = buildProviderHeaders(config);
@@ -463,29 +585,36 @@ export function buildModelsRequest(config = {}) {
   };
 }
 
-export function parseProviderResponse(payload, apiType = 'openai', options = {}) {
+const textFromParts = value => {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value.map(part => typeof part === 'string' ? part : part?.text ?? '').filter(Boolean).join('');
+  }
+  return typeof value?.text === 'string' ? value.text : '';
+};
+
+export function parseProviderResponse(payload, apiType = 'openai') {
   const type = getApiType({ type: apiType });
   if (typeof payload === 'string') return payload;
+  if (type === 'google') {
+    const parts = payload?.candidates?.[0]?.content?.parts;
+    const text = textFromParts(parts);
+    if (text) return text;
+  }
   if (type === 'anthropic') {
-    const textBlock = Array.isArray(payload?.content)
-      ? payload.content.find(block => block?.type === 'text' && typeof block.text === 'string')
-      : null;
-    if (textBlock) return textBlock.text;
+    const text = textFromParts(payload?.content);
+    if (text) return text;
   }
   const choice = payload?.choices?.[0];
-  if (typeof choice?.message?.content === 'string') {
-    const content = choice.message.content;
-    const reasoning = options.includeReasoning
-      ? String(choice.message.reasoning_content ?? choice.message.reasoning ?? '').trim()
-      : '';
-    return [content, reasoning].filter(Boolean).join('\n\n');
-  }
+  if (typeof choice?.message?.content === 'string') return choice.message.content;
+  const messageText = textFromParts(choice?.message?.content);
+  if (messageText) return messageText;
   if (typeof choice?.text === 'string') return choice.text;
   if (typeof payload?.output_text === 'string') return payload.output_text;
   throw new Error('API response did not contain text');
 }
 
-export function parseModelList(payload) {
+export function parseModelList(payload, apiType = 'openai') {
   const entries = Array.isArray(payload?.data)
     ? payload.data
     : Array.isArray(payload?.models)
@@ -495,7 +624,7 @@ export function parseModelList(payload) {
         : [];
   const names = entries
     .map(entry => typeof entry === 'string' ? entry : entry?.id ?? entry?.key ?? entry?.name ?? entry?.model)
-    .map(value => String(value ?? '').trim())
+    .map(value => String(value ?? '').trim().replace(apiType === 'google' ? /^models\//i : /^$/, ''))
     .filter(Boolean);
   return [...new Set(names)].sort((left, right) => left.localeCompare(right));
 }
@@ -506,9 +635,113 @@ const createAbortError = message => {
   return error;
 };
 
-const fetchJson = async (fetchImpl, url, init) => {
+export class ProviderHttpError extends Error {
+  constructor(status, detail = '') {
+    const normalizedStatus = Number(status) || 0;
+    const suffix = detail ? `: ${detail}` : '';
+    const message = normalizedStatus === 401
+      ? `API Key 或鉴权方式无效 (401 Unauthorized)${suffix}`
+      : normalizedStatus === 403
+        ? `API 没有访问权限 (403 Forbidden)${suffix}`
+        : normalizedStatus === 404
+          ? `API 接口地址不存在 (404 Not Found)${suffix}`
+          : normalizedStatus === 429
+            ? `API 请求过于频繁 (429 Too Many Requests)${suffix}`
+            : `API request failed (${normalizedStatus || 'unknown'})${suffix}`;
+    super(message);
+    this.name = 'ProviderHttpError';
+    this.status = normalizedStatus;
+    this.detail = detail;
+  }
+}
+
+export class ProviderResponseError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ProviderResponseError';
+  }
+}
+
+const previewDebugText = (value, limit = 4000) => {
+  const text = String(value ?? '');
+  return text.length > limit ? `${text.slice(0, limit)}\n… [truncated]` : text;
+};
+
+export function summarizeProviderPayload(payload, apiType = 'openai') {
+  const type = getApiType({ type: apiType });
+  const choice = payload?.choices?.[0];
+  const message = choice?.message;
+  const standardContent = type === 'google'
+    ? textFromParts(payload?.candidates?.[0]?.content?.parts)
+    : textFromParts(message?.content) || choice?.text || payload?.output_text || '';
+  const reasoning = type === 'google'
+    ? ''
+    : message?.reasoning_content ?? message?.reasoning ?? '';
+  return {
+    topLevelKeys: Object.keys(payload ?? {}),
+    finishReason: choice?.finish_reason ?? payload?.candidates?.[0]?.finishReason ?? null,
+    standardContentLength: String(standardContent ?? '').length,
+    standardContentPreview: previewDebugText(standardContent),
+    reasoningContentLength: String(reasoning ?? '').length,
+    reasoningContentPreview: previewDebugText(reasoning, 1200),
+    choices: Array.isArray(payload?.choices) ? payload.choices.length : undefined,
+    candidates: Array.isArray(payload?.candidates) ? payload.candidates.length : undefined,
+    usage: payload?.usage ?? null,
+  };
+}
+
+const parseSsePayload = text => {
+  let content = '';
+  let reasoning = '';
+  let finishReason = null;
+  let usage = null;
+  for (const line of String(text ?? '').split(/\r?\n/)) {
+    const data = line.startsWith('data:') ? line.slice(5).trim() : '';
+    if (!data || data === '[DONE]') continue;
+    try {
+      const payload = JSON.parse(data);
+      const choice = payload?.choices?.[0];
+      const delta = choice?.delta ?? {};
+      const deltaContent = Array.isArray(delta.content)
+        ? delta.content.filter(part => typeof part?.text === 'string').map(part => part.text).join('')
+        : String(delta.content ?? '');
+      content += deltaContent;
+      reasoning += String(delta.reasoning_content ?? '');
+      finishReason = choice?.finish_reason ?? finishReason;
+      usage = payload?.usage ?? usage;
+    } catch {
+      // Ignore keep-alive or malformed SSE lines and let response validation report if no text arrived.
+    }
+  }
+  return { choices: [{ message: { role: 'assistant', content, reasoning_content: reasoning }, finish_reason: finishReason }], usage };
+};
+
+const readStreamText = async body => {
+  const reader = body?.getReader?.();
+  if (!reader) return '';
+  const decoder = new TextDecoder();
+  let text = '';
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    text += decoder.decode(chunk.value, { stream: true });
+  }
+  return text + decoder.decode();
+};
+
+const fetchJson = async (fetchImpl, url, init, options = {}) => {
   const response = await fetchImpl(url, init);
-  if (!response?.ok) throw new Error(`API request failed (${Number(response?.status) || 'unknown'})`);
+  if (!response?.ok) {
+    let detail = '';
+    try {
+      const payload = await response.json();
+      detail = String(payload?.error?.message ?? payload?.message ?? '').trim();
+    } catch {
+      // Some gateways return an empty or non-JSON body for auth errors.
+    }
+    throw new ProviderHttpError(response?.status, detail);
+  }
+  if (options.stream && response?.body?.getReader) return parseSsePayload(await readStreamText(response.body));
   return response.json();
 };
 
@@ -532,24 +765,59 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     }, timeoutMs)
     : null;
   const request = buildCompletionRequest(config, promptData, controller?.signal ?? externalSignal);
+  const debug = typeof dependencies.onDebug === 'function' ? dependencies.onDebug : null;
+  const debugBase = {
+    provider: getApiType(config),
+    url: request.url,
+    model: String(config.model ?? '').trim(),
+    maxTokens: getEffectiveMaxTokens(config),
+    authMode: getAuthMode(config),
+    stream: shouldUseStreaming(config),
+    messageCount: Array.isArray(promptData.messages) ? promptData.messages.length : 0,
+  };
+  debug?.({ phase: 'request', ...debugBase });
   try {
-    let payload = await fetchJson(fetchImpl, request.url, request.init);
-    for (const retryMaxTokens of [512, 1024]) {
+    const streaming = shouldUseStreaming(config);
+    let payload = await fetchJson(fetchImpl, request.url, request.init, { stream: streaming });
+    debug?.({ phase: 'response', attempt: 1, ...debugBase, payload: summarizeProviderPayload(payload, config.type) });
+    let attempt = 1;
+  const retryBudgets = getApiType(config) === 'lmstudio' ? [512, 1024, 2048, 4096] : [256, 512, 1024, 2048, 4096];
+  const effectiveMaxTokens = getEffectiveMaxTokens(config);
+    for (const retryMaxTokens of retryBudgets) {
       const choice = payload?.choices?.[0];
       const message = choice?.message;
       const reasoningOnly = getApiType(config) === 'lmstudio'
         && message
-        && !String(message.content ?? '').trim();
-      if (!reasoningOnly) break;
+        && !textFromParts(message.content).trim();
+      const truncated = choice?.finish_reason === 'length'
+        || payload?.candidates?.[0]?.finishReason === 'MAX_TOKENS';
+      let invalidSuggestion = false;
+      if (promptData.responseFormat === 'suggestions' && !reasoningOnly && !truncated) {
+        try {
+          parseCandidateArray(parseProviderResponse(payload, config.type));
+        } catch {
+          invalidSuggestion = true;
+        }
+      }
+      if (!reasoningOnly && !truncated && !invalidSuggestion) break;
+      if (retryMaxTokens <= effectiveMaxTokens) continue;
       const retryConfig = {
         ...config,
-        maxTokens: Math.max(Number(config.maxTokens ?? config.max_tokens ?? 80), retryMaxTokens),
+        maxTokens: Math.max(effectiveMaxTokens, retryMaxTokens),
       };
       const retryRequest = buildCompletionRequest(retryConfig, promptData, controller?.signal ?? externalSignal);
-      payload = await fetchJson(fetchImpl, retryRequest.url, retryRequest.init);
+      attempt += 1;
+      payload = await fetchJson(fetchImpl, retryRequest.url, retryRequest.init, { stream: streaming });
+      debug?.({ phase: 'response', attempt, ...debugBase, maxTokens: retryConfig.maxTokens, payload: summarizeProviderPayload(payload, config.type) });
     }
-    return parseProviderResponse(payload, config.type, { includeReasoning: Boolean(promptData.generationInstruction) });
+    const type = getApiType(config);
+    const message = payload?.choices?.[0]?.message;
+    if (type === 'lmstudio' && message && !textFromParts(message.content).trim() && String(message.reasoning_content ?? '').trim()) {
+      throw new ProviderResponseError('LM Studio 只返回了 reasoning 内容，没有标准 content；请关闭模型思考/深度推理，或提高 max_tokens 后重试。');
+    }
+    return parseProviderResponse(payload, config.type);
   } catch (error) {
+    debug?.({ phase: 'error', ...debugBase, error: { name: error?.name, message: error?.message, status: error?.status, stack: previewDebugText(error?.stack, 2000) } });
     if (timedOut) throw createAbortError('API request timed out');
     if (error?.name === 'AbortError') throw createAbortError('API request was cancelled');
     throw error instanceof Error ? error : new Error('API request failed');
@@ -568,7 +836,7 @@ export async function requestModels(config = {}, dependencies = {}) {
   for (const url of urls) {
     try {
       const payload = await fetchJson(fetchImpl, url, request.init);
-      const models = parseModelList(payload);
+      const models = parseModelList(payload, getApiType(config));
       if (models.length || url === urls.at(-1)) return models;
     } catch (error) {
       lastError = error;
@@ -585,17 +853,23 @@ export function getInputElement(root, settingPath) {
 
 const getNestedValue = (source, path) => String(path).split('.').reduce((value, key) => value?.[key], source);
 
+const getSettingScale = element => {
+  const scale = Number(element?.dataset?.sqrScale ?? 1);
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
+};
+
 const parseSettingValue = element => {
   if (element.type === 'checkbox') return Boolean(element.checked);
   if (element.type === 'number' || element.type === 'range') {
     const value = Number(element.value);
-    return Number.isFinite(value) ? value : 0;
+    return Number.isFinite(value) ? value * getSettingScale(element) : 0;
   }
   return element.value;
 };
 
 export function renderSettings(container, settings = {}, handlers = {}) {
   if (!container || typeof container.querySelectorAll !== 'function') return () => {};
+  hydrateLucideIcons(container);
   const listeners = [];
   const listen = (element, event, callback) => {
     if (!element?.addEventListener) return;
@@ -616,7 +890,11 @@ export function renderSettings(container, settings = {}, handlers = {}) {
     const path = element.dataset.sqrSetting;
     const value = getNestedValue(settings, path);
     if (element.type === 'checkbox') element.checked = Boolean(value);
-    else if (value !== undefined && value !== null) element.value = String(value);
+    else if (value !== undefined && value !== null) {
+      element.value = element.type === 'number' || element.type === 'range'
+        ? String(Number(value) / getSettingScale(element))
+        : String(value);
+    }
     updateOutput(path);
     const eventName = element.type === 'range' ? 'input' : 'change';
     listen(element, eventName, () => {
@@ -749,23 +1027,33 @@ export function createRequestCoordinator(AbortControllerImpl = globalThis.AbortC
   let active = null;
   return {
     begin() {
-      if (active?.controller) active.controller.abort();
+      if (active) return { ...active, reused: true };
       const id = ++sequence;
       const controller = typeof AbortControllerImpl === 'function' ? new AbortControllerImpl() : null;
-      active = { id, controller };
-      return { id, controller, signal: controller?.signal };
+      active = { id, controller, signal: controller?.signal };
+      return { ...active, reused: false };
     },
     isCurrent(id) {
       return active?.id === id;
     },
     cancel() {
+      const cancelled = active;
       if (active?.controller) active.controller.abort();
       active = null;
+      return cancelled;
     },
     finish(id) {
       if (active?.id === id) active = null;
     },
   };
+}
+
+export function resetPanelAfterCancellation(panel, cancelledRequest, hide = false) {
+  if (!cancelledRequest) return false;
+  panel?.setLoading?.(false);
+  const hasCandidates = typeof panel?.hasCandidates === 'function' ? panel.hasCandidates() : true;
+  if (hide || !hasCandidates) panel?.hide?.();
+  return true;
 }
 
 export function createDragScheduler(requestFrame, onFrame = null) {
@@ -792,6 +1080,21 @@ export function createDragScheduler(requestFrame, onFrame = null) {
   };
 }
 
+export function renderCandidateButton(button, item, documentImpl = button?.ownerDocument) {
+  let text = button.querySelector?.('.sqr-candidate-text');
+  if (!text) {
+    button.replaceChildren();
+    text = documentImpl.createElement('span');
+    text.className = 'sqr-candidate-text';
+    button.append(text);
+  }
+  const value = String(typeof item === 'object' ? item?.text ?? item?.reply ?? '' : item ?? '').trim();
+  text.textContent = value;
+  button.title = value;
+  button.hidden = !value;
+  return value;
+}
+
 export function createPanel(documentImpl, callbacks = {}) {
   if (!documentImpl?.createElement) throw new Error('A browser document is required');
   const element = documentImpl.createElement('div');
@@ -801,16 +1104,33 @@ export function createPanel(documentImpl, callbacks = {}) {
   element.setAttribute('role', 'region');
   element.setAttribute('aria-label', '智能快捷回复建议');
 
-  const dragHandle = documentImpl.createElement('div');
+  const scene = documentImpl.createElement('div');
+  scene.className = 'sqr-glass-scene';
+  scene.setAttribute('aria-hidden', 'true');
+  element.appendChild(scene);
+
+  const surface = documentImpl.createElement('div');
+  surface.className = 'sqr-panel-surface';
+  surface.setAttribute('aria-hidden', 'true');
+  element.appendChild(surface);
+
+  const dragHandle = documentImpl.createElement('button');
+  dragHandle.type = 'button';
   dragHandle.className = 'sqr-drag-handle';
-  dragHandle.textContent = '⋮⋮';
+  dragHandle.appendChild(createLucideIcon(documentImpl, 'grip-vertical', { className: 'sqr-icon' }));
   dragHandle.title = '拖动面板';
   dragHandle.setAttribute('aria-label', '拖动面板');
   element.appendChild(dragHandle);
 
-  const candidates = documentImpl.createElement('div');
-  candidates.className = 'sqr-candidates';
-  element.appendChild(candidates);
+  const buttons = Array.from({ length: 4 }, () => {
+    const button = documentImpl.createElement('button');
+    button.type = 'button';
+    button.className = 'sqr-candidate';
+    button.hidden = true;
+    renderCandidateButton(button, '', documentImpl);
+    element.appendChild(button);
+    return button;
+  });
 
   const status = documentImpl.createElement('span');
   status.className = 'sqr-panel-status';
@@ -820,19 +1140,11 @@ export function createPanel(documentImpl, callbacks = {}) {
   const refresh = documentImpl.createElement('button');
   refresh.type = 'button';
   refresh.className = 'sqr-refresh';
-  refresh.textContent = '🔄';
+  refresh.appendChild(createLucideIcon(documentImpl, 'refresh-cw', { className: 'sqr-icon' }));
   refresh.title = '刷新回复建议';
   refresh.setAttribute('aria-label', '刷新回复建议');
   element.appendChild(refresh);
 
-  const buttons = Array.from({ length: 4 }, () => {
-    const button = documentImpl.createElement('button');
-    button.type = 'button';
-    button.className = 'sqr-candidate';
-    button.hidden = true;
-    candidates.appendChild(button);
-    return button;
-  });
   const listeners = [];
   const listen = (target, event, handler, options) => {
     target.addEventListener(event, handler, options);
@@ -840,6 +1152,7 @@ export function createPanel(documentImpl, callbacks = {}) {
   };
   let position = null;
   let dragState = null;
+  let candidateCount = 0;
   const windowImpl = documentImpl.defaultView ?? globalThis.window;
   const requestFrame = typeof windowImpl?.requestAnimationFrame === 'function'
     ? windowImpl.requestAnimationFrame.bind(windowImpl)
@@ -848,11 +1161,13 @@ export function createPanel(documentImpl, callbacks = {}) {
   const hide = () => {
     element.hidden = true;
     element.style.display = 'none';
+    callbacks.onVisibilityChange?.(false);
   };
   const show = options => {
     if (options?.position) setPosition(options.position);
     element.hidden = false;
     element.style.display = 'flex';
+    callbacks.onVisibilityChange?.(true);
   };
   const setPosition = next => {
     if (!Number.isFinite(Number(next?.left)) || !Number.isFinite(Number(next?.top))) return;
@@ -860,18 +1175,29 @@ export function createPanel(documentImpl, callbacks = {}) {
     element.style.left = `${position.left}px`;
     element.style.top = `${position.top}px`;
   };
+  listen(dragHandle, 'keydown', event => {
+    const delta = {
+      ArrowLeft: { left: -8, top: 0 },
+      ArrowRight: { left: 8, top: 0 },
+      ArrowUp: { left: 0, top: -8 },
+      ArrowDown: { left: 0, top: 8 },
+    }[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    const rect = element.getBoundingClientRect();
+    const current = position ?? { left: rect.left, top: rect.top };
+    setPosition({ left: current.left + delta.left, top: current.top + delta.top });
+    callbacks.onMove?.(position);
+  });
   const setCandidates = values => {
     const list = Array.isArray(values) ? values : [];
     buttons.forEach((button, index) => {
-      const value = String(list[index] ?? '').trim();
-      button.textContent = value;
-      button.title = value;
-      button.hidden = !value;
+      renderCandidateButton(button, list[index], documentImpl);
     });
+    candidateCount = buttons.filter(button => !button.hidden).length;
     status.hidden = true;
     status.className = 'sqr-panel-status';
     status.textContent = '';
-    candidates.hidden = false;
   };
   const setLoading = loading => {
     element.classList.toggle('sqr-loading', Boolean(loading));
@@ -890,14 +1216,13 @@ export function createPanel(documentImpl, callbacks = {}) {
     element.classList.remove('sqr-loading');
     refresh.disabled = false;
     buttons.forEach(button => { button.disabled = false; button.hidden = true; });
-    candidates.hidden = true;
     status.hidden = false;
     status.className = 'sqr-panel-status sqr-error';
     status.textContent = String(message || '生成失败，请检查 API 配置');
   };
 
   buttons.forEach(button => listen(button, 'click', () => {
-    const value = button.textContent.trim();
+    const value = button.querySelector('.sqr-candidate-text')?.textContent.trim() ?? '';
     if (!value) return;
     const input = documentImpl.querySelector('#send_textarea');
     if (input) {
@@ -961,9 +1286,11 @@ export function createPanel(documentImpl, callbacks = {}) {
   documentImpl.body?.appendChild(element);
   return {
     element,
+    glassElements: [surface, ...buttons, refresh],
     show,
     hide,
     setCandidates,
+    hasCandidates: () => candidateCount > 0,
     setLoading,
     setError,
     setPosition,
@@ -977,10 +1304,122 @@ export function createPanel(documentImpl, callbacks = {}) {
   };
 }
 
-const DEFAULT_EVENT_TYPES = Object.freeze({
+const LIQUID_GLASS_CDN = 'https://cdn.jsdelivr.net/npm/@ybouane/liquidglass@1.0.3/dist/index.js';
+
+const PANEL_GLASS_CONFIG = Object.freeze({
+  blurAmount: 0.25,
+  cornerRadius: 30,
+  opacity: 0.30,
+});
+
+const BUTTON_GLASS_CONFIG = Object.freeze({
+  button: true,
+  brightness: -0.45,
+  blurAmount: 0.25,
+  cornerRadius: 50,
+  opacity: 0.88,
+});
+
+export function configureReplyPanelGlassElements(panel) {
+  if (!panel?.element || !Array.isArray(panel.glassElements) || panel.glassElements.length < 2) return false;
+  const [surface, ...controls] = panel.glassElements;
+  surface.dataset.config = JSON.stringify(PANEL_GLASS_CONFIG);
+  controls.forEach(control => {
+    control.dataset.config = JSON.stringify(BUTTON_GLASS_CONFIG);
+  });
+  panel.element.style?.setProperty?.('--sqr-liquidglass-radius', `${PANEL_GLASS_CONFIG.cornerRadius}px`);
+  return true;
+}
+
+export async function initReplyPanelLiquidGlass(panel) {
+  if (!configureReplyPanelGlassElements(panel)) return null;
+  const { LiquidGlass } = await import(LIQUID_GLASS_CDN);
+  return LiquidGlass.init({
+    root: panel.element,
+    glassElements: panel.glassElements,
+  });
+}
+
+export function createReplyPanelLiquidGlassController(panel, options = {}) {
+  const windowImpl = options.window ?? globalThis.window;
+  const init = options.init ?? initReplyPanelLiquidGlass;
+  const setTimeoutImpl = options.setTimeout ?? globalThis.setTimeout;
+  const clearTimeoutImpl = options.clearTimeout ?? globalThis.clearTimeout;
+  let instance = null;
+  let initPromise = null;
+  let scheduleId = null;
+  let generation = 0;
+  let destroyed = false;
+
+  const dispose = () => {
+    generation += 1;
+    if (scheduleId !== null) {
+      if (typeof windowImpl?.cancelIdleCallback === 'function') windowImpl.cancelIdleCallback(scheduleId);
+      else clearTimeoutImpl(scheduleId);
+      scheduleId = null;
+    }
+    instance?.destroy?.();
+    instance = null;
+    panel?.element?.classList.remove('sqr-liquidglass-ready');
+  };
+
+  const destroy = () => {
+    if (destroyed) return;
+    destroyed = true;
+    dispose();
+  };
+
+  const ensure = () => {
+    if (destroyed || !panel?.isVisible?.() || instance || initPromise || scheduleId !== null) return;
+    const initGeneration = ++generation;
+    const start = () => {
+      scheduleId = null;
+      if (destroyed || !panel.isVisible() || initGeneration !== generation) return;
+      let pending;
+      try {
+        pending = init(panel);
+      } catch {
+        panel.element.classList.remove('sqr-liquidglass-ready');
+        return;
+      }
+      let retryWhenSettled = false;
+      initPromise = Promise.resolve(pending)
+        .then(nextInstance => {
+          if (!nextInstance) return;
+          if (!panel.isVisible() || initGeneration !== generation) {
+            nextInstance.destroy?.();
+            panel.element.classList.remove('sqr-liquidglass-ready');
+            retryWhenSettled = !destroyed && panel.isVisible();
+            return;
+          }
+          instance = nextInstance;
+          panel.element.classList.add('sqr-liquidglass-ready');
+        })
+        .catch(() => {
+          panel.element.classList.remove('sqr-liquidglass-ready');
+          retryWhenSettled = !destroyed && initGeneration !== generation && panel.isVisible();
+        })
+        .finally(() => {
+          initPromise = null;
+          if (!destroyed && retryWhenSettled && panel.isVisible()) ensure();
+        });
+    };
+    if (typeof windowImpl?.requestIdleCallback === 'function') {
+      scheduleId = windowImpl.requestIdleCallback(start, { timeout: 600 });
+    } else {
+      scheduleId = setTimeoutImpl(start, 0);
+    }
+  };
+
+  return { ensure, dispose, destroy };
+}
+
+export const DEFAULT_EVENT_TYPES = Object.freeze({
   GENERATION_STARTED: 'GENERATION_STARTED',
   GENERATION_STOPPED: 'GENERATION_STOPPED',
+  GENERATION_ENDED: 'GENERATION_ENDED',
   CHARACTER_MESSAGE_RENDERED: 'CHARACTER_MESSAGE_RENDERED',
+  MESSAGE_RECEIVED: 'MESSAGE_RECEIVED',
   MESSAGE_SENT: 'MESSAGE_SENT',
   CHAT_CHANGED: 'CHAT_CHANGED',
   CHAT_DELETED: 'CHAT_DELETED',
@@ -991,6 +1430,51 @@ const resolveEventType = (context, name, windowImpl) => context.eventTypes?.[nam
 
 export function shouldSuggestOnCharacterRendered(settings = {}, generationActive = false) {
   return !generationActive && settings.triggerMode === 'auto';
+}
+
+export function decideAutoSuggestionTrigger(settings = {}, state = {}) {
+  if (settings.triggerMode !== 'auto' || state.generationActive) return null;
+  if (state.characterRendered) return { interrupted: false };
+  return settings.interruptedAutoGenerate ? { interrupted: true } : null;
+}
+
+export function shouldScheduleAfterMessageReceived(settings = {}, state = {}) {
+  return settings.triggerMode === 'auto' && !state.generationActive && Boolean(state.hasCharacterMessage);
+}
+
+export function getLatestCharacterMessageKey(chat = []) {
+  const messages = Array.isArray(chat) ? chat : [];
+  const index = messages.length - 1;
+  const message = messages[index];
+  if (!message || message.is_user || message.isUser || message.role === 'user' || message.is_system || message.role === 'system') return '';
+  const content = String(message.mes ?? message.content ?? '').trim();
+  return content ? `${index}:${content}` : '';
+}
+
+export function shouldDismissAfterMessageSent(settings = {}, state = {}) {
+  return Boolean(settings.dismissAfterSend) && state.latestMessageIsUser !== false;
+}
+
+export function shouldShowRequestError(error = {}) {
+  return !(error?.name === 'AbortError' && error?.message !== 'API request timed out');
+}
+
+export function getRequestErrorMessage(error = {}) {
+  if (!shouldShowRequestError(error)) return '';
+  if (error?.name === 'AbortError') return '请求超时，请检查 API 配置或提高超时时间';
+  return error?.message || '生成失败，请检查 API 配置';
+}
+
+export function resolveApiRequestConfig(settings = {}, options = {}) {
+  const api = settings.api ?? {};
+  const type = detectApiType(api.url, api.type, api.autoDetect);
+  const inputApiKey = String(options.inputApiKey ?? '').trim();
+  const runtimeApiKey = String(options.runtimeApiKey ?? '').trim();
+  return {
+    ...api,
+    type,
+    key: inputApiKey || String(api.key ?? '').trim() || runtimeApiKey || String(settings.apiKey ?? '').trim(),
+  };
 }
 
 const subscribeEvent = (source, eventName, handler) => {
@@ -1017,7 +1501,13 @@ export function bootstrap(context = {}) {
   const storage = context.storage ?? windowImpl?.localStorage;
   const positionStore = createPositionStore(storage, 'smart-quick-replies.position');
   const coordinator = createRequestCoordinator(context.AbortController ?? windowImpl?.AbortController ?? globalThis.AbortController);
-  const panel = createPanel(documentImpl, {
+  let liquidGlassController;
+  let panel;
+  panel = createPanel(documentImpl, {
+    onVisibilityChange: visible => {
+      if (visible) liquidGlassController?.ensure();
+      else liquidGlassController?.dispose();
+    },
     onMove: position => {
       const rect = panel.element.getBoundingClientRect();
       const viewport = { width: windowImpl?.innerWidth ?? 0, height: windowImpl?.innerHeight ?? 0 };
@@ -1027,12 +1517,53 @@ export function bootstrap(context = {}) {
     },
     onRefresh: () => requestSuggestions(lastRequestInterrupted),
   });
+  liquidGlassController = createReplyPanelLiquidGlassController(panel, {
+    window: windowImpl,
+    setTimeout: context.setTimeout ?? globalThis.setTimeout,
+    clearTimeout: context.clearTimeout ?? globalThis.clearTimeout,
+  });
+  const cancelSuggestionRequest = (hide, reason = 'request-cancelled') => {
+    const cancelled = coordinator.cancel();
+    const hasCandidates = typeof panel.hasCandidates === 'function' ? panel.hasCandidates() : true;
+    const shouldHide = Boolean(cancelled) && (hide || !hasCandidates);
+    const result = resetPanelAfterCancellation(panel, cancelled, hide);
+    if (shouldHide) recordDebug({ operation: 'panel', phase: 'hide', reason });
+    return result;
+  };
   const cleanups = [];
   let lastRequestInterrupted = false;
   let stoppedTimer = null;
+  let scheduledAutoSuggestionKey = '';
+  let autoSuggestionKey = '';
   let generationId = 0;
   let handledStopId = -1;
+  let characterRenderedGenerationId = -1;
   let generationActive = false;
+  const debugOutput = documentImpl.querySelector('#sqr-debug-output');
+  const debugEntries = [];
+  const renderDebug = () => {
+    if (debugOutput) debugOutput.textContent = debugEntries.length
+      ? debugEntries.map(entry => JSON.stringify(entry, null, 2)).join('\n\n')
+      : '暂无 Debug 记录。';
+  };
+  const recordDebug = entry => {
+    debugEntries.push({ timestamp: new Date().toISOString(), ...entry });
+    if (debugEntries.length > 30) debugEntries.splice(0, debugEntries.length - 30);
+    renderDebug();
+  };
+  const hidePanel = reason => {
+    if (!panel.isVisible()) return;
+    recordDebug({ operation: 'panel', phase: 'hide', reason });
+    panel.hide();
+  };
+  const clearDebug = () => {
+    debugEntries.splice(0);
+    renderDebug();
+  };
+  const clearDebugButton = documentImpl.querySelector('#sqr-clear-debug');
+  clearDebugButton?.addEventListener('click', clearDebug);
+  cleanups.push(() => clearDebugButton?.removeEventListener('click', clearDebug));
+  renderDebug();
 
   const getLiveContext = () => {
     if (typeof context.getContext === 'function') return context.getContext() ?? {};
@@ -1069,17 +1600,24 @@ export function bootstrap(context = {}) {
     }
   };
   const resolveApiConfig = currentSettings => {
-    const type = detectApiType(currentSettings.api.url, currentSettings.api.type, currentSettings.api.autoDetect);
-    return { ...currentSettings.api, type, key: currentSettings.api.key ?? context.apiKey ?? currentSettings.apiKey ?? '' };
+    return resolveApiRequestConfig(currentSettings, {
+      inputApiKey: documentImpl.querySelector('#sqr-api-key')?.value,
+      runtimeApiKey: context.apiKey,
+    });
   };
   const requestSuggestions = async (interrupted = false) => {
     const currentSettings = getSettings();
     if (currentSettings.triggerMode === 'off') return;
-    lastRequestInterrupted = Boolean(interrupted);
     const request = coordinator.begin();
+    if (request.reused) {
+      showPanel();
+      return;
+    }
+    lastRequestInterrupted = Boolean(interrupted);
     panel.setCandidates([]);
     panel.setLoading(true);
     showPanel();
+    let raw = '';
     try {
       const live = getLiveContext();
       const charName = live.name2 ?? live.character?.name ?? 'Character';
@@ -1110,7 +1648,7 @@ export function bootstrap(context = {}) {
         }, {
           system: 'Summarize the early conversation history accurately and concisely for a reply suggestion assistant.',
           messages: [{ role: 'user', content: text }],
-        }, { fetch: fetchImpl, signal: request.signal });
+        }, { fetch: fetchImpl, signal: request.signal, onDebug: entry => recordDebug({ requestId: request.id, operation: 'summary', ...entry }) });
       });
       if (!coordinator.isCurrent(request.id)) return;
       const promptTemplate = description ? `Character description:\n${description}\n\n${currentSettings.systemPrompt}` : currentSettings.systemPrompt;
@@ -1120,35 +1658,67 @@ export function bootstrap(context = {}) {
         charDescription: description,
         userStyleExamples: formatUserStyleExamples(styleHistory.messages),
       });
-      const raw = await requestCompletion(apiConfig, promptData, {
+      raw = await requestCompletion(apiConfig, promptData, {
         fetch: fetchImpl,
         signal: request.signal,
         AbortController: context.AbortController ?? windowImpl?.AbortController ?? globalThis.AbortController,
+        onDebug: entry => recordDebug({ requestId: request.id, operation: 'suggestions', ...entry }),
       });
       if (!coordinator.isCurrent(request.id)) return;
-      panel.setCandidates(parseCandidateArray(raw));
+      panel.setCandidates(parseCandidateResults(raw));
       panel.setLoading(false);
       showPanel();
     } catch (error) {
       if (!coordinator.isCurrent(request.id)) return;
-      panel.setError(error?.name === 'AbortError' ? '请求已取消' : '生成失败，请检查 API 配置');
+      recordDebug({
+        requestId: request.id,
+        operation: 'parse-or-request',
+        phase: 'failure',
+        error: { name: error?.name, message: error?.message, stack: previewDebugText(error?.stack, 2000) },
+        rawResponsePreview: previewDebugText(raw, 4000),
+      });
+      const errorMessage = getRequestErrorMessage(error);
+      if (!errorMessage) return;
+      panel.setError(errorMessage);
       showPanel();
     } finally {
       coordinator.finish(request.id);
     }
   };
 
+  const scheduleAutoSuggestion = interrupted => {
+    if (handledStopId === generationId) return;
+    const messageKey = getLatestCharacterMessageKey(getLiveContext().chat);
+    if (!messageKey || scheduledAutoSuggestionKey === messageKey || autoSuggestionKey === messageKey) return;
+    scheduledAutoSuggestionKey = messageKey;
+    if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
+    stoppedTimer = (context.setTimeout ?? globalThis.setTimeout)(() => {
+      stoppedTimer = null;
+      scheduledAutoSuggestionKey = '';
+      if (handledStopId === generationId) return;
+      autoSuggestionKey = messageKey;
+      handledStopId = generationId;
+      requestSuggestions(interrupted);
+    }, 100);
+  };
+
   const manualButton = documentImpl.createElement('button');
   manualButton.id = 'sqr-manual-trigger';
   manualButton.type = 'button';
   manualButton.className = 'menu_button';
-  manualButton.textContent = '回复建议';
+  manualButton.appendChild(createLucideIcon(documentImpl, 'sparkles', { className: 'sqr-icon' }));
+  const manualText = documentImpl.createElement('span');
+  manualText.textContent = '回复建议';
+  manualButton.appendChild(manualText);
   manualButton.title = '生成快捷回复建议';
   const sendButton = documentImpl.querySelector('#send_but');
   const sendForm = documentImpl.querySelector('#send_form');
   (sendButton?.parentElement ?? sendForm ?? documentImpl.body)?.appendChild(manualButton);
   cleanups.push(() => manualButton.remove?.());
-  cleanups.push(() => panel.destroy());
+  cleanups.push(() => {
+    liquidGlassController.destroy();
+    panel.destroy();
+  });
   const manualClick = () => requestSuggestions(false);
   manualButton.addEventListener('click', manualClick);
   cleanups.push(() => manualButton.removeEventListener('click', manualClick));
@@ -1158,51 +1728,84 @@ export function bootstrap(context = {}) {
     generationActive = true;
     generationId += 1;
     handledStopId = -1;
-    coordinator.cancel();
-    panel.hide();
+    characterRenderedGenerationId = -1;
+    cancelSuggestionRequest(false, 'generation-started');
   });
   eventHandler('CHARACTER_MESSAGE_RENDERED', () => {
+    characterRenderedGenerationId = generationId;
     const currentSettings = getSettings();
-    if (shouldSuggestOnCharacterRendered(currentSettings, generationActive)) requestSuggestions(false);
+    const trigger = decideAutoSuggestionTrigger(currentSettings, {
+      generationActive,
+      characterRendered: true,
+    });
+    if (trigger) scheduleAutoSuggestion(trigger.interrupted);
   });
   eventHandler('GENERATION_STOPPED', () => {
     generationActive = false;
     const currentSettings = getSettings();
-    if (currentSettings.triggerMode !== 'auto' || !currentSettings.interruptedAutoGenerate || handledStopId === generationId) return;
-    handledStopId = generationId;
-    if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
-    stoppedTimer = (context.setTimeout ?? globalThis.setTimeout)(() => {
-      const live = getLiveContext();
-      const last = live.chat?.at?.(-1);
-      if (last && !last.is_user) requestSuggestions(true);
-    }, 100);
+    if (currentSettings.triggerMode !== 'auto' || !currentSettings.interruptedAutoGenerate) return;
+    const live = getLiveContext();
+    const last = live.chat?.at?.(-1);
+    if (!last || last.is_user) return;
+    scheduleAutoSuggestion(true);
   });
-  for (const name of ['CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_CREATED']) eventHandler(name, () => { coordinator.cancel(); panel.hide(); });
-  eventHandler('MESSAGE_SENT', () => { if (getSettings().dismissAfterSend) panel.hide(); });
+  eventHandler('GENERATION_ENDED', () => {
+    generationActive = false;
+    const currentSettings = getSettings();
+    if (currentSettings.triggerMode !== 'auto') return;
+    // SillyTavern emits GENERATION_ENDED for normal completion and also briefly
+    // while handling a manual stop. Keep this delayed so GENERATION_STOPPED can
+    // replace it with the interrupted-context path when applicable.
+    scheduleAutoSuggestion(false);
+  });
+  eventHandler('MESSAGE_RECEIVED', () => {
+    const live = getLiveContext();
+    const last = live.chat?.at?.(-1);
+    const currentSettings = getSettings();
+    if (shouldScheduleAfterMessageReceived(currentSettings, {
+      generationActive,
+      hasCharacterMessage: Boolean(last && !last.is_user),
+    })) {
+      characterRenderedGenerationId = generationId;
+      scheduleAutoSuggestion(false);
+    }
+  });
+  for (const name of ['CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_CREATED']) eventHandler(name, () => {
+    scheduledAutoSuggestionKey = '';
+    autoSuggestionKey = '';
+    cancelSuggestionRequest(true, name.toLowerCase());
+  });
+  eventHandler('MESSAGE_SENT', () => {
+    const last = getLiveContext().chat?.at?.(-1);
+    const latestMessageIsUser = last
+      ? Boolean(last.is_user ?? last.isUser ?? last.role === 'user')
+      : undefined;
+    if (shouldDismissAfterMessageSent(getSettings(), { latestMessageIsUser })) hidePanel('message-sent');
+  });
 
   const textarea = documentImpl.querySelector('#send_textarea');
   const hideAfterSend = event => {
-    if (event.key === 'Enter' && !event.shiftKey && getSettings().dismissAfterSend) panel.hide();
+    if (event.key === 'Enter' && !event.shiftKey && getSettings().dismissAfterSend) hidePanel('enter-send');
   };
   textarea?.addEventListener('keydown', hideAfterSend);
   cleanups.push(() => textarea?.removeEventListener('keydown', hideAfterSend));
-  const sendClick = () => { if (getSettings().dismissAfterSend) panel.hide(); };
+  const sendClick = () => { if (getSettings().dismissAfterSend) hidePanel('send-button'); };
   sendButton?.addEventListener('click', sendClick);
   cleanups.push(() => sendButton?.removeEventListener('click', sendClick));
   const keydown = event => {
-    if (event.key === 'Escape' && getSettings().escDismiss) panel.hide();
+    if (event.key === 'Escape' && getSettings().escDismiss) hidePanel('escape');
   };
   documentImpl.addEventListener('keydown', keydown);
   cleanups.push(() => documentImpl.removeEventListener('keydown', keydown));
   const outsideClick = event => {
     if (!getSettings().outsideClickDismiss || !panel.isVisible()) return;
-    if (!panel.element.contains(event.target) && event.target !== manualButton) panel.hide();
+    if (!panel.element.contains(event.target) && event.target !== manualButton) hidePanel('outside-click');
   };
   documentImpl.addEventListener('click', outsideClick, true);
   cleanups.push(() => documentImpl.removeEventListener('click', outsideClick, true));
 
   return () => {
-    coordinator.cancel();
+    cancelSuggestionRequest(false, 'extension-cleanup');
     if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
     cleanups.splice(0).forEach(cleanup => cleanup());
   };
@@ -1245,7 +1848,11 @@ export async function readApiKey(context = {}, provider = 'openai') {
   if (adapter?.read) {
     try {
       const value = await adapter.read(key);
-      return typeof value === 'string' ? value : String(value?.value ?? '');
+      const secretValue = typeof value === 'string' ? value : String(value?.value ?? '');
+      // Some ST versions expose the Secrets API even when it has no value yet.
+      // Keep checking the namespaced fallback in that case instead of treating
+      // an empty Secrets response as the final answer.
+      if (secretValue.trim()) return secretValue;
     } catch {
       // Fall back to the namespaced local value when an older Secrets API rejects the key.
     }
@@ -1264,6 +1871,11 @@ export async function writeApiKey(context = {}, provider = 'openai', value = '')
   if (adapter?.write) {
     try {
       await adapter.write(key, safeValue);
+      // Remove an older fallback when the user intentionally clears the key;
+      // otherwise a blank Secrets value would appear to resurrect the old key.
+      if (!safeValue) {
+        try { getStorage(context)?.removeItem?.(key); } catch { /* Ignore unavailable fallback storage. */ }
+      }
       return 'secrets';
     } catch {
       // Use the explicit local fallback only when the Secrets API is unavailable at runtime.
@@ -1351,8 +1963,8 @@ export async function initSettingsUI(context = {}) {
           }
         }
         if (modelStatus) modelStatus.textContent = models.length ? `已获取 ${models.length} 个模型。` : '接口返回的模型列表为空，请手动填写。';
-      } catch {
-        if (modelStatus) modelStatus.textContent = '获取模型失败，请检查 URL、跨域设置或手动填写模型名称。';
+      } catch (error) {
+        if (modelStatus) modelStatus.textContent = error?.message || '获取模型失败，请检查 URL、跨域设置或手动填写模型名称。';
       }
     },
     resetPosition() {
@@ -1369,14 +1981,58 @@ export async function initSettingsUI(context = {}) {
     },
   });
   if (keyInput) {
+    let activeKeyProvider = detectApiType(settings.api.url, settings.api.type, settings.api.autoDetect);
     keyInput.value = loaded.apiKey;
-    const onKeyChange = async () => {
-      const type = detectApiType(settings.api.url, settings.api.type, settings.api.autoDetect);
-      const mode = await writeApiKey(context, type, keyInput.value);
-      updateKeyStatus(mode);
+    let keySaveTimer = null;
+    let keySaveQueue = Promise.resolve();
+    const persistApiKey = (provider = activeKeyProvider) => {
+      const value = keyInput.value;
+      keySaveQueue = keySaveQueue
+        .then(async () => {
+          const mode = await writeApiKey(context, provider, value);
+          updateKeyStatus(mode);
+        })
+        .catch(() => {});
+      return keySaveQueue;
     };
-    keyInput.addEventListener('change', onKeyChange);
-    cleanups.push(() => keyInput.removeEventListener('change', onKeyChange));
+    const scheduleApiKeySave = () => {
+      if (keySaveTimer !== null) clearTimeout(keySaveTimer);
+      keySaveTimer = setTimeout(() => {
+        keySaveTimer = null;
+        void persistApiKey();
+      }, 250);
+    };
+    const flushApiKeySave = () => {
+      if (keySaveTimer !== null) {
+        clearTimeout(keySaveTimer);
+        keySaveTimer = null;
+      }
+      return persistApiKey(activeKeyProvider);
+    };
+    keyInput.addEventListener('input', scheduleApiKeySave);
+    keyInput.addEventListener('change', flushApiKeySave);
+    keyInput.addEventListener('blur', flushApiKeySave);
+    const syncProviderKey = async () => {
+      const nextProvider = detectApiType(settings.api.url, settings.api.type, settings.api.autoDetect);
+      if (nextProvider === activeKeyProvider) return;
+      // Save the value under the provider it belonged to before switching, then
+      // load the provider-specific value so changing API type cannot lose keys.
+      await flushApiKeySave();
+      activeKeyProvider = nextProvider;
+      keyInput.value = await readApiKey(context, activeKeyProvider);
+      updateKeyStatus(getApiKeyStorageMode(context));
+    };
+    const providerControls = ['#sqr-api-type', '#sqr-api-auto-detect', '#sqr-api-url']
+      .map(selector => root.querySelector(selector))
+      .filter(Boolean);
+    for (const control of providerControls) control.addEventListener('change', syncProviderKey);
+    cleanups.push(() => {
+      if (keySaveTimer !== null) clearTimeout(keySaveTimer);
+      keyInput.removeEventListener('input', scheduleApiKeySave);
+      keyInput.removeEventListener('change', flushApiKeySave);
+      keyInput.removeEventListener('blur', flushApiKeySave);
+      for (const control of providerControls) control.removeEventListener('change', syncProviderKey);
+    });
   }
   updateKeyStatus(loaded.keyStorage);
   renderPosition();
