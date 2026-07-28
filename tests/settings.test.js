@@ -18,6 +18,8 @@ import {
   DEFAULT_EVENT_TYPES,
   shouldSuggestOnCharacterRendered,
   decideAutoSuggestionTrigger,
+  shouldScheduleAfterMessageReceived,
+  shouldShowRequestError,
 } from '../index.js';
 
 test('default settings use automatic trigger, 20 messages, compression, and four candidates', () => {
@@ -140,6 +142,7 @@ test('suggestion buttons use multiline clamping instead of single-line ellipsis'
   assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*-webkit-line-clamp:\s*3/);
   assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*white-space:\s*normal/);
   assert.doesNotMatch(css, /#sqr-panel \.sqr-candidate,[\s\S]*text-overflow:\s*ellipsis/);
+  assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*min-height:\s*0/);
 });
 
 test('loading state hides empty candidates and centers its status', () => {
@@ -217,4 +220,16 @@ test('auto suggestions trigger after either render-before-stop or stop-only inte
   assert.deepEqual(decideAutoSuggestionTrigger({ triggerMode: 'auto', interruptedAutoGenerate: true }, { generationActive: false, characterRendered: true }), { interrupted: false });
   assert.deepEqual(decideAutoSuggestionTrigger({ triggerMode: 'auto', interruptedAutoGenerate: true }, { generationActive: false, characterRendered: false }), { interrupted: true });
   assert.equal(decideAutoSuggestionTrigger({ triggerMode: 'manual', interruptedAutoGenerate: true }, { generationActive: false, characterRendered: true }), null);
+});
+
+test('message receipt can provide a completed-character auto-trigger fallback', () => {
+  assert.equal(shouldScheduleAfterMessageReceived({ triggerMode: 'auto' }, { generationActive: false, hasCharacterMessage: true }), true);
+  assert.equal(shouldScheduleAfterMessageReceived({ triggerMode: 'auto' }, { generationActive: true, hasCharacterMessage: true }), false);
+  assert.equal(shouldScheduleAfterMessageReceived({ triggerMode: 'manual' }, { generationActive: false, hasCharacterMessage: true }), false);
+});
+
+test('intentional aborts do not become visible request errors', () => {
+  assert.equal(shouldShowRequestError({ name: 'AbortError', message: 'API request was cancelled' }), false);
+  assert.equal(shouldShowRequestError({ name: 'AbortError', message: 'API request timed out' }), true);
+  assert.equal(shouldShowRequestError({ name: 'ProviderHttpError', message: '401' }), true);
 });

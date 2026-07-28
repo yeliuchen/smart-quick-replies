@@ -405,7 +405,7 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   line-height: 1.35;
-  min-height: 3.35rem;
+  min-height: 0;
   overflow-wrap: anywhere;
   white-space: normal;
 }

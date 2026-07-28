@@ -1238,6 +1238,7 @@ export const DEFAULT_EVENT_TYPES = Object.freeze({
   GENERATION_STOPPED: 'GENERATION_STOPPED',
   GENERATION_ENDED: 'GENERATION_ENDED',
   CHARACTER_MESSAGE_RENDERED: 'CHARACTER_MESSAGE_RENDERED',
+  MESSAGE_RECEIVED: 'MESSAGE_RECEIVED',
   MESSAGE_SENT: 'MESSAGE_SENT',
   CHAT_CHANGED: 'CHAT_CHANGED',
   CHAT_DELETED: 'CHAT_DELETED',
@@ -1254,6 +1255,14 @@ export function decideAutoSuggestionTrigger(settings = {}, state = {}) {
   if (settings.triggerMode !== 'auto' || state.generationActive) return null;
   if (state.characterRendered) return { interrupted: false };
   return settings.interruptedAutoGenerate ? { interrupted: true } : null;
+}
+
+export function shouldScheduleAfterMessageReceived(settings = {}, state = {}) {
+  return settings.triggerMode === 'auto' && !state.generationActive && Boolean(state.hasCharacterMessage);
+}
+
+export function shouldShowRequestError(error = {}) {
+  return !(error?.name === 'AbortError' && error?.message !== 'API request timed out');
 }
 
 export function resolveApiRequestConfig(settings = {}, options = {}) {
@@ -1442,6 +1451,7 @@ export function bootstrap(context = {}) {
         error: { name: error?.name, message: error?.message, stack: previewDebugText(error?.stack, 2000) },
         rawResponsePreview: previewDebugText(raw, 4000),
       });
+      if (!shouldShowRequestError(error)) return;
       panel.setError(error?.name === 'AbortError' ? '请求已取消' : error?.message || '生成失败，请检查 API 配置');
       showPanel();
     } finally {
@@ -1510,6 +1520,18 @@ export function bootstrap(context = {}) {
     // while handling a manual stop. Keep this delayed so GENERATION_STOPPED can
     // replace it with the interrupted-context path when applicable.
     scheduleAutoSuggestion(false);
+  });
+  eventHandler('MESSAGE_RECEIVED', () => {
+    const live = getLiveContext();
+    const last = live.chat?.at?.(-1);
+    const currentSettings = getSettings();
+    if (shouldScheduleAfterMessageReceived(currentSettings, {
+      generationActive,
+      hasCharacterMessage: Boolean(last && !last.is_user),
+    })) {
+      characterRenderedGenerationId = generationId;
+      scheduleAutoSuggestion(false);
+    }
   });
   for (const name of ['CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_CREATED']) eventHandler(name, () => { coordinator.cancel(); panel.hide(); });
   eventHandler('MESSAGE_SENT', () => { if (getSettings().dismissAfterSend) panel.hide(); });
