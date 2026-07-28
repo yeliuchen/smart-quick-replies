@@ -125,6 +125,15 @@ test('settings use one outer drawer and five independent inner drawers', () => {
   }
 });
 
+test('settings declare the complete Lucide icon inventory without legacy icons', () => {
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.equal((html.match(/data-lucide="chevron-down"/g) ?? []).length, 8);
+  for (const icon of ['map-pin-off', 'list-restart', 'undo-2', 'trash-2']) {
+    assert.match(html, new RegExp(`data-lucide="${icon}"`));
+  }
+  assert.doesNotMatch(html, /<summary[\s\S]*?fa-solid|<summary[\s\S]*?fa-circle-chevron-down|>\s*▾\s*</);
+});
+
 test('settings use compact root heading and inline model and prompt toolbars', () => {
   const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
   assert.doesNotMatch(html, /<h[1-4][\s>]/i);
@@ -136,6 +145,12 @@ test('settings use compact root heading and inline model and prompt toolbars', (
   assert.match(html, /data-sqr-color-picker[\s\S]*data-sqr-color-value="#ffffff"/);
   assert.match(html, /class="sqr-model-toolbar"[\s\S]*id="sqr-model-search"[\s\S]*id="sqr-fetch-models"/);
   assert.match(html, /class="sqr-prompt-toolbar"[\s\S]*系统提示词[\s\S]*id="sqr-reset-prompt"/);
+});
+
+test('button color setting is labeled as a LiquidGlass fallback', () => {
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.match(html, /<span>备用按钮颜色（玻璃无法加载时）<\/span>\s*<input id="sqr-button-color"/);
+  assert.doesNotMatch(html, /<span>按钮颜色<\/span>\s*<input id="sqr-button-color"/);
 });
 
 test('settings layout contracts define desktop and narrow-screen toolbar rules', () => {
@@ -169,21 +184,37 @@ test('settings CSS gives form controls theme-aware colors', () => {
 
 test('suggestion buttons use multiline clamping instead of single-line ellipsis', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
-  assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*-webkit-line-clamp:\s*3/);
-  assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*white-space:\s*normal/);
-  assert.doesNotMatch(css, /#sqr-panel \.sqr-candidate,[\s\S]*text-overflow:\s*ellipsis/);
-  assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*min-height:\s*0/);
+  const candidateRule = css.match(/#sqr-panel \.sqr-candidate\s*\{([^}]*)\}/)?.[1] ?? '';
+  const textRule = css.match(/#sqr-panel \.sqr-candidate-text\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  assert.match(candidateRule, /display:\s*flex/);
+  assert.doesNotMatch(candidateRule, /-webkit-box|-webkit-line-clamp|white-space|overflow-wrap/);
+  assert.match(candidateRule, /min-height:\s*0/);
+  assert.match(textRule, /display:\s*-webkit-box/);
+  assert.match(textRule, /-webkit-box-orient:\s*vertical/);
+  assert.match(textRule, /-webkit-line-clamp:\s*3/);
+  assert.match(textRule, /overflow:\s*hidden/);
+  assert.match(textRule, /overflow-wrap:\s*anywhere/);
+  assert.match(textRule, /white-space:\s*normal/);
+  assert.doesNotMatch(textRule, /text-overflow:\s*ellipsis/);
+});
+
+test('fallback button background consumes user color without tinting ready glass', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  const panelRule = css.match(/#sqr-panel\s*\{([^}]*)\}/)?.[1] ?? '';
+  const fallbackControls = css.match(/#sqr-panel \.sqr-candidate,\s*#sqr-panel \.sqr-refresh\s*\{([^}]*)\}/)?.[1] ?? '';
+  const readyControls = css.match(/#sqr-panel\.sqr-liquidglass-ready \.sqr-candidate,\s*#sqr-panel\.sqr-liquidglass-ready \.sqr-refresh\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  assert.match(panelRule, /--sqr-control-background:\s*color-mix\([^;]*rgba\(24,\s*26,\s*32,[^)]+\)\s+88%,\s*var\(--sqr-button-color\)\s+12%\)/);
+  assert.match(fallbackControls, /background:\s*var\(--sqr-control-background\)/);
+  assert.match(readyControls, /background:\s*transparent/);
+  assert.doesNotMatch(readyControls, /sqr-button-color|sqr-control-background|color-mix/);
 });
 
 test('loading state hides empty candidates and centers its status', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   assert.match(css, /#sqr-panel \.sqr-candidate\[hidden\]\s*\{[\s\S]*display:\s*none/);
   assert.match(css, /#sqr-panel \.sqr-panel-status\s*\{[\s\S]*text-align:\s*center/);
-});
-
-test('candidate buttons do not define a pseudo-element marker style', () => {
-  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
-  assert.doesNotMatch(css, /\.sqr-candidate\.[\w-]+::before/);
 });
 
 test('drag scheduler keeps only the newest pending point until the frame runs', () => {

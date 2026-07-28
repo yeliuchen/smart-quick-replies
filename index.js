@@ -1,3 +1,5 @@
+import { createLucideIcon, hydrateLucideIcons } from './icons.js';
+
 const LEGACY_SYSTEM_PROMPT = 'You are an assistant that helps the user reply to {{char}}. Given the conversation history, generate 4 distinct, short, and in-character replies that {{user}} might say next. Reply ONLY with a JSON array of 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]';
 
 export const DEFAULT_SYSTEM_PROMPT = `You generate reply suggestions for the USER, who is replying to the CHARACTER {{char}}.
@@ -867,6 +869,7 @@ const parseSettingValue = element => {
 
 export function renderSettings(container, settings = {}, handlers = {}) {
   if (!container || typeof container.querySelectorAll !== 'function') return () => {};
+  hydrateLucideIcons(container);
   const listeners = [];
   const listen = (element, event, callback) => {
     if (!element?.addEventListener) return;
@@ -1077,6 +1080,21 @@ export function createDragScheduler(requestFrame, onFrame = null) {
   };
 }
 
+export function renderCandidateButton(button, item, documentImpl = button?.ownerDocument) {
+  let text = button.querySelector?.('.sqr-candidate-text');
+  if (!text) {
+    button.replaceChildren();
+    text = documentImpl.createElement('span');
+    text.className = 'sqr-candidate-text';
+    button.append(text);
+  }
+  const value = String(typeof item === 'object' ? item?.text ?? item?.reply ?? '' : item ?? '').trim();
+  text.textContent = value;
+  button.title = value;
+  button.hidden = !value;
+  return value;
+}
+
 export function createPanel(documentImpl, callbacks = {}) {
   if (!documentImpl?.createElement) throw new Error('A browser document is required');
   const element = documentImpl.createElement('div');
@@ -1086,16 +1104,33 @@ export function createPanel(documentImpl, callbacks = {}) {
   element.setAttribute('role', 'region');
   element.setAttribute('aria-label', '智能快捷回复建议');
 
-  const dragHandle = documentImpl.createElement('div');
+  const scene = documentImpl.createElement('div');
+  scene.className = 'sqr-glass-scene';
+  scene.setAttribute('aria-hidden', 'true');
+  element.appendChild(scene);
+
+  const surface = documentImpl.createElement('div');
+  surface.className = 'sqr-panel-surface';
+  surface.setAttribute('aria-hidden', 'true');
+  element.appendChild(surface);
+
+  const dragHandle = documentImpl.createElement('button');
+  dragHandle.type = 'button';
   dragHandle.className = 'sqr-drag-handle';
-  dragHandle.textContent = '⋮⋮';
+  dragHandle.appendChild(createLucideIcon(documentImpl, 'grip-vertical', { className: 'sqr-icon' }));
   dragHandle.title = '拖动面板';
   dragHandle.setAttribute('aria-label', '拖动面板');
   element.appendChild(dragHandle);
 
-  const candidates = documentImpl.createElement('div');
-  candidates.className = 'sqr-candidates';
-  element.appendChild(candidates);
+  const buttons = Array.from({ length: 4 }, () => {
+    const button = documentImpl.createElement('button');
+    button.type = 'button';
+    button.className = 'sqr-candidate';
+    button.hidden = true;
+    renderCandidateButton(button, '', documentImpl);
+    element.appendChild(button);
+    return button;
+  });
 
   const status = documentImpl.createElement('span');
   status.className = 'sqr-panel-status';
@@ -1105,19 +1140,11 @@ export function createPanel(documentImpl, callbacks = {}) {
   const refresh = documentImpl.createElement('button');
   refresh.type = 'button';
   refresh.className = 'sqr-refresh';
-  refresh.textContent = '🔄';
+  refresh.appendChild(createLucideIcon(documentImpl, 'refresh-cw', { className: 'sqr-icon' }));
   refresh.title = '刷新回复建议';
   refresh.setAttribute('aria-label', '刷新回复建议');
   element.appendChild(refresh);
 
-  const buttons = Array.from({ length: 4 }, () => {
-    const button = documentImpl.createElement('button');
-    button.type = 'button';
-    button.className = 'sqr-candidate';
-    button.hidden = true;
-    candidates.appendChild(button);
-    return button;
-  });
   const listeners = [];
   const listen = (target, event, handler, options) => {
     target.addEventListener(event, handler, options);
@@ -1134,11 +1161,13 @@ export function createPanel(documentImpl, callbacks = {}) {
   const hide = () => {
     element.hidden = true;
     element.style.display = 'none';
+    callbacks.onVisibilityChange?.(false);
   };
   const show = options => {
     if (options?.position) setPosition(options.position);
     element.hidden = false;
     element.style.display = 'flex';
+    callbacks.onVisibilityChange?.(true);
   };
   const setPosition = next => {
     if (!Number.isFinite(Number(next?.left)) || !Number.isFinite(Number(next?.top))) return;
@@ -1146,20 +1175,29 @@ export function createPanel(documentImpl, callbacks = {}) {
     element.style.left = `${position.left}px`;
     element.style.top = `${position.top}px`;
   };
+  listen(dragHandle, 'keydown', event => {
+    const delta = {
+      ArrowLeft: { left: -8, top: 0 },
+      ArrowRight: { left: 8, top: 0 },
+      ArrowUp: { left: 0, top: -8 },
+      ArrowDown: { left: 0, top: 8 },
+    }[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    const rect = element.getBoundingClientRect();
+    const current = position ?? { left: rect.left, top: rect.top };
+    setPosition({ left: current.left + delta.left, top: current.top + delta.top });
+    callbacks.onMove?.(position);
+  });
   const setCandidates = values => {
     const list = Array.isArray(values) ? values : [];
     buttons.forEach((button, index) => {
-      const item = list[index];
-      const value = String(typeof item === 'object' ? item?.text ?? item?.reply ?? '' : item ?? '').trim();
-      button.textContent = value;
-      button.title = value;
-      button.hidden = !value;
+      renderCandidateButton(button, list[index], documentImpl);
     });
     candidateCount = buttons.filter(button => !button.hidden).length;
     status.hidden = true;
     status.className = 'sqr-panel-status';
     status.textContent = '';
-    candidates.hidden = false;
   };
   const setLoading = loading => {
     element.classList.toggle('sqr-loading', Boolean(loading));
@@ -1178,14 +1216,13 @@ export function createPanel(documentImpl, callbacks = {}) {
     element.classList.remove('sqr-loading');
     refresh.disabled = false;
     buttons.forEach(button => { button.disabled = false; button.hidden = true; });
-    candidates.hidden = true;
     status.hidden = false;
     status.className = 'sqr-panel-status sqr-error';
     status.textContent = String(message || '生成失败，请检查 API 配置');
   };
 
   buttons.forEach(button => listen(button, 'click', () => {
-    const value = button.textContent.trim();
+    const value = button.querySelector('.sqr-candidate-text')?.textContent.trim() ?? '';
     if (!value) return;
     const input = documentImpl.querySelector('#send_textarea');
     if (input) {
@@ -1249,6 +1286,7 @@ export function createPanel(documentImpl, callbacks = {}) {
   documentImpl.body?.appendChild(element);
   return {
     element,
+    glassElements: [surface, ...buttons, refresh],
     show,
     hide,
     setCandidates,
@@ -1264,6 +1302,116 @@ export function createPanel(documentImpl, callbacks = {}) {
       element.remove?.();
     },
   };
+}
+
+const LIQUID_GLASS_CDN = 'https://cdn.jsdelivr.net/npm/@ybouane/liquidglass@1.0.3/dist/index.js';
+
+const PANEL_GLASS_CONFIG = Object.freeze({
+  blurAmount: 0.25,
+  cornerRadius: 30,
+  opacity: 0.30,
+});
+
+const BUTTON_GLASS_CONFIG = Object.freeze({
+  button: true,
+  brightness: -0.45,
+  blurAmount: 0.25,
+  cornerRadius: 50,
+  opacity: 0.88,
+});
+
+export function configureReplyPanelGlassElements(panel) {
+  if (!panel?.element || !Array.isArray(panel.glassElements) || panel.glassElements.length < 2) return false;
+  const [surface, ...controls] = panel.glassElements;
+  surface.dataset.config = JSON.stringify(PANEL_GLASS_CONFIG);
+  controls.forEach(control => {
+    control.dataset.config = JSON.stringify(BUTTON_GLASS_CONFIG);
+  });
+  panel.element.style?.setProperty?.('--sqr-liquidglass-radius', `${PANEL_GLASS_CONFIG.cornerRadius}px`);
+  return true;
+}
+
+export async function initReplyPanelLiquidGlass(panel) {
+  if (!configureReplyPanelGlassElements(panel)) return null;
+  const { LiquidGlass } = await import(LIQUID_GLASS_CDN);
+  return LiquidGlass.init({
+    root: panel.element,
+    glassElements: panel.glassElements,
+  });
+}
+
+export function createReplyPanelLiquidGlassController(panel, options = {}) {
+  const windowImpl = options.window ?? globalThis.window;
+  const init = options.init ?? initReplyPanelLiquidGlass;
+  const setTimeoutImpl = options.setTimeout ?? globalThis.setTimeout;
+  const clearTimeoutImpl = options.clearTimeout ?? globalThis.clearTimeout;
+  let instance = null;
+  let initPromise = null;
+  let scheduleId = null;
+  let generation = 0;
+  let destroyed = false;
+
+  const dispose = () => {
+    generation += 1;
+    if (scheduleId !== null) {
+      if (typeof windowImpl?.cancelIdleCallback === 'function') windowImpl.cancelIdleCallback(scheduleId);
+      else clearTimeoutImpl(scheduleId);
+      scheduleId = null;
+    }
+    instance?.destroy?.();
+    instance = null;
+    panel?.element?.classList.remove('sqr-liquidglass-ready');
+  };
+
+  const destroy = () => {
+    if (destroyed) return;
+    destroyed = true;
+    dispose();
+  };
+
+  const ensure = () => {
+    if (destroyed || !panel?.isVisible?.() || instance || initPromise || scheduleId !== null) return;
+    const initGeneration = ++generation;
+    const start = () => {
+      scheduleId = null;
+      if (destroyed || !panel.isVisible() || initGeneration !== generation) return;
+      let pending;
+      try {
+        pending = init(panel);
+      } catch {
+        panel.element.classList.remove('sqr-liquidglass-ready');
+        return;
+      }
+      let retryWhenSettled = false;
+      initPromise = Promise.resolve(pending)
+        .then(nextInstance => {
+          if (!nextInstance) return;
+          if (!panel.isVisible() || initGeneration !== generation) {
+            nextInstance.destroy?.();
+            panel.element.classList.remove('sqr-liquidglass-ready');
+            retryWhenSettled = !destroyed && panel.isVisible();
+            return;
+          }
+          instance = nextInstance;
+          panel.element.classList.add('sqr-liquidglass-ready');
+        })
+        .catch(() => {
+          panel.element.classList.remove('sqr-liquidglass-ready');
+          retryWhenSettled = !destroyed && initGeneration !== generation && panel.isVisible();
+        })
+        .finally(() => {
+          initPromise = null;
+          if (!destroyed && retryWhenSettled && panel.isVisible()) ensure();
+        });
+    };
+    if (typeof windowImpl?.requestIdleCallback === 'function') {
+      scheduleId = windowImpl.requestIdleCallback(start, { timeout: 600 });
+    } else {
+      scheduleId = setTimeoutImpl(start, 0);
+    }
+  };
+
+  return { ensure, dispose, destroy };
 }
 
 export const DEFAULT_EVENT_TYPES = Object.freeze({
@@ -1353,7 +1501,13 @@ export function bootstrap(context = {}) {
   const storage = context.storage ?? windowImpl?.localStorage;
   const positionStore = createPositionStore(storage, 'smart-quick-replies.position');
   const coordinator = createRequestCoordinator(context.AbortController ?? windowImpl?.AbortController ?? globalThis.AbortController);
-  const panel = createPanel(documentImpl, {
+  let liquidGlassController;
+  let panel;
+  panel = createPanel(documentImpl, {
+    onVisibilityChange: visible => {
+      if (visible) liquidGlassController?.ensure();
+      else liquidGlassController?.dispose();
+    },
     onMove: position => {
       const rect = panel.element.getBoundingClientRect();
       const viewport = { width: windowImpl?.innerWidth ?? 0, height: windowImpl?.innerHeight ?? 0 };
@@ -1362,6 +1516,11 @@ export function bootstrap(context = {}) {
       positionStore.write(safePosition);
     },
     onRefresh: () => requestSuggestions(lastRequestInterrupted),
+  });
+  liquidGlassController = createReplyPanelLiquidGlassController(panel, {
+    window: windowImpl,
+    setTimeout: context.setTimeout ?? globalThis.setTimeout,
+    clearTimeout: context.clearTimeout ?? globalThis.clearTimeout,
   });
   const cancelSuggestionRequest = (hide, reason = 'request-cancelled') => {
     const cancelled = coordinator.cancel();
@@ -1547,13 +1706,19 @@ export function bootstrap(context = {}) {
   manualButton.id = 'sqr-manual-trigger';
   manualButton.type = 'button';
   manualButton.className = 'menu_button';
-  manualButton.textContent = '回复建议';
+  manualButton.appendChild(createLucideIcon(documentImpl, 'sparkles', { className: 'sqr-icon' }));
+  const manualText = documentImpl.createElement('span');
+  manualText.textContent = '回复建议';
+  manualButton.appendChild(manualText);
   manualButton.title = '生成快捷回复建议';
   const sendButton = documentImpl.querySelector('#send_but');
   const sendForm = documentImpl.querySelector('#send_form');
   (sendButton?.parentElement ?? sendForm ?? documentImpl.body)?.appendChild(manualButton);
   cleanups.push(() => manualButton.remove?.());
-  cleanups.push(() => panel.destroy());
+  cleanups.push(() => {
+    liquidGlassController.destroy();
+    panel.destroy();
+  });
   const manualClick = () => requestSuggestions(false);
   manualButton.addEventListener('click', manualClick);
   cleanups.push(() => manualButton.removeEventListener('click', manualClick));
