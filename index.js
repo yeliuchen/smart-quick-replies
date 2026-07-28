@@ -6,6 +6,7 @@ Your role is only to write what {{user}} could send next. You are NOT {{char}}, 
 
 Rules:
 - Generate exactly 4 distinct, short, natural messages that {{user}} can send directly to {{char}}.
+- Keep every reply to one short sentence, preferably under 30 Chinese characters (or 15 words); never exceed 40 Chinese characters (or 20 words).
 - Write from {{user}}'s first-person perspective and address {{char}}.
 - Match the user's demonstrated wording, sentence length, punctuation, directness, and emotional tone from the user style examples.
 - Use the examples only as a style reference; do not copy their subject matter or sentences.
@@ -20,7 +21,7 @@ Rules:
 Reply ONLY with a JSON array of exactly 4 objects, like: [{"reply":"reply1","progression":false},{"reply":"reply2","progression":true},{"reply":"reply3","progression":false},{"reply":"reply4","progression":false}]`;
 
 export const DEFAULT_SETTINGS = Object.freeze({
-  version: 2,
+  version: 4,
   triggerMode: 'auto',
   interruptedAutoGenerate: true,
   dismissAfterSend: true,
@@ -97,11 +98,12 @@ export function migrateSettings(saved = {}) {
       && source.systemPrompt.includes('user style examples')
       && (!source.systemPrompt.includes('do not wrap a reply')
         || !source.systemPrompt.includes('scene stagnation')
-        || !source.systemPrompt.includes('Return exactly 4 JSON objects'));
+        || !source.systemPrompt.includes('Return exactly 4 JSON objects')
+        || !source.systemPrompt.includes('30 Chinese characters'));
   if (source.systemPrompt === LEGACY_SYSTEM_PROMPT || usesPreviousDefault) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
   if (isPlainObject(source.api) && Number(source.api.maxTokens) > 0 && Number(source.api.maxTokens) <= 128) source.api.maxTokens = 2048;
   if (isPlainObject(source.api) && Number(source.version ?? 0) < 3 && Number(source.api.maxTokens) === 512) source.api.maxTokens = 2048;
-  source.version = 3;
+  source.version = 4;
   return source;
 }
 
@@ -432,7 +434,7 @@ export function buildPromptMessages(systemPrompt, history = { messages: [] }, va
     system: expanded,
     messages: hasHistoryPlaceholder ? [] : historyMessages.filter(message => message?.role !== 'system'),
     responseFormat: 'suggestions',
-    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. If the recent scene has stagnated for about 6 exchanges, make 1 or 2 options gently advance it by one small plausible beat without forcing a resolution. Output ONLY a JSON array of exactly 4 objects with reply and progression fields.',
+    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Keep each reply to one short sentence, preferably under 30 Chinese characters or 15 words, and never over 40 Chinese characters or 20 words. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. If the recent scene has stagnated for about 6 exchanges, make 1 or 2 options gently advance it by one small plausible beat without forcing a resolution. Output ONLY a JSON array of exactly 4 objects with reply and progression fields.',
   };
 }
 

@@ -36,6 +36,8 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.match(DEFAULT_SYSTEM_PROMPT, /user style examples/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /scene stagnation/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /6 consecutive user-character exchanges/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /30 Chinese characters/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /never exceed 40 Chinese characters/);
 });
 
 test('SillyTavern completion uses GENERATION_ENDED separately from manual stop', () => {
@@ -76,6 +78,14 @@ test('migrateSettings upgrades the original default prompt to user-perspective r
     systemPrompt: 'You are an assistant that helps the user reply to {{char}}. Given the conversation history, generate 4 distinct, short, and in-character replies that {{user}} might say next. Reply ONLY with a JSON array of 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]',
   });
   assert.match(migrated.systemPrompt, /You are NOT \{\{char\}\}/);
+});
+
+test('migrateSettings upgrades older default prompts with the short-reply limit', () => {
+  const migrated = migrateSettings({
+    version: 3,
+    systemPrompt: DEFAULT_SYSTEM_PROMPT.replace(/- Keep every reply very short:[\s\S]*?\n/, ''),
+  });
+  assert.match(migrated.systemPrompt, /30 Chinese characters/);
 });
 
 test('panel position clamps to the viewport with a margin', () => {
