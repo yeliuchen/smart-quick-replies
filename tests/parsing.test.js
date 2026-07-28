@@ -104,16 +104,16 @@ test('candidate parser removes outer quotes and acting metadata', () => {
   ].join('\n')), ['Reply one', 'Reply two', 'Reply three', 'Reply four']);
 });
 
-test('candidate results preserve the scene progression marker', () => {
+test('candidate results accept reply objects and return plain replies', () => {
   assert.deepEqual(parseCandidateResults(JSON.stringify([
-    { reply: 'Stay with the current topic.', progression: false },
-    { reply: 'Ask what happens next.', progression: true },
-    { reply: 'Tease the character gently.', progression: false },
-    { reply: 'Offer a small new action.', progression: true },
+    { reply: 'Stay with the current topic.' },
+    { reply: 'Ask what happens next.' },
+    { reply: 'Tease the character gently.' },
+    { reply: 'Offer a small new action.' },
   ])), [
-    { text: 'Stay with the current topic.', progression: false },
-    { text: 'Ask what happens next.', progression: true },
-    { text: 'Tease the character gently.', progression: false },
-    { text: 'Offer a small new action.', progression: true },
+    'Stay with the current topic.',
+    'Ask what happens next.',
+    'Tease the character gently.',
+    'Offer a small new action.',
   ]);
 });

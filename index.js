@@ -10,15 +10,13 @@ Rules:
 - Write from {{user}}'s first-person perspective and address {{char}}.
 - Match the user's demonstrated wording, sentence length, punctuation, directness, and emotional tone from the user style examples.
 - Use the examples only as a style reference; do not copy their subject matter or sentences.
-- Check for scene stagnation: if roughly 6 consecutive user-character exchanges repeat the same situation, goal, conflict, or emotional beat without meaningful change, include 1 or 2 suggestions that gently advance the scene by one plausible small beat.
-- A scene advance may introduce a concrete user action, a new question, a nearby task, or a modest change in focus. Do not abruptly end the scene, skip major events, decide the character's reaction, or take control away from the user.
 - Never continue {{char}}'s dialogue, thoughts, actions, narration, or roleplay.
 - Never write stage directions, third-person narration, labels, explanations, or analysis.
-- Return exactly 4 JSON objects with this shape: {"reply":"message text","progression":false}. Set progression to true only for a gentle, small scene-advancing suggestion; otherwise set it to false.
+- Return exactly 4 distinct JSON strings.
 - Return message text only: do not wrap a reply in quotation marks and do not append labels such as "Acting", "Draft", "Option", or style explanations.
 - Treat the latest character message as the message the user needs to answer.
 
-Reply ONLY with a JSON array of exactly 4 objects, like: [{"reply":"reply1","progression":false},{"reply":"reply2","progression":true},{"reply":"reply3","progression":false},{"reply":"reply4","progression":false}]`;
+Reply ONLY with a JSON array of exactly 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]`;
 
 export const DEFAULT_SETTINGS = Object.freeze({
   version: 4,
@@ -97,8 +95,7 @@ export function migrateSettings(saved = {}) {
     || typeof source.systemPrompt === 'string'
       && source.systemPrompt.includes('user style examples')
       && (!source.systemPrompt.includes('do not wrap a reply')
-        || !source.systemPrompt.includes('scene stagnation')
-        || !source.systemPrompt.includes('Return exactly 4 JSON objects')
+        || !source.systemPrompt.includes('Return exactly 4 distinct JSON strings')
         || !source.systemPrompt.includes('30 Chinese characters'));
   if (source.systemPrompt === LEGACY_SYSTEM_PROMPT || usesPreviousDefault) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
   if (isPlainObject(source.api) && Number(source.api.maxTokens) > 0 && Number(source.api.maxTokens) <= 128) source.api.maxTokens = 2048;
@@ -261,35 +258,16 @@ const normalizeCandidateText = value => String(value ?? '')
   .trim();
 
 const validateCandidates = parsed => {
-  if (!Array.isArray(parsed) || parsed.length !== 4 || parsed.some(item => typeof item !== 'string' || !item.trim())) return null;
-  const candidates = parsed.map(normalizeCandidateText);
+  if (!Array.isArray(parsed) || parsed.length !== 4) return null;
+  const candidates = parsed.map(item => normalizeCandidateText(
+    typeof item === 'string' ? item : item?.reply ?? item?.text ?? item?.content ?? '',
+  ));
   if (candidates.some(candidate => !candidate)) return null;
   return new Set(candidates).size === 4 ? candidates : null;
 };
 
-const validateCandidateResults = parsed => {
-  if (!Array.isArray(parsed) || parsed.length !== 4) return null;
-  const results = parsed.map(item => {
-    if (typeof item === 'string') return { text: normalizeCandidateText(item), progression: false };
-    if (!item || typeof item !== 'object') return null;
-    return {
-      text: normalizeCandidateText(item.reply ?? item.text ?? item.content ?? ''),
-      progression: Boolean(item.progression ?? item.sceneProgression ?? item.advanceScene),
-    };
-  });
-  if (results.some(result => !result?.text) || new Set(results.map(result => result.text)).size !== 4) return null;
-  return results;
-};
-
 export function parseCandidateResults(text) {
-  try {
-    const results = validateCandidateResults(JSON.parse(extractJsonArray(text)));
-    if (results) return results;
-  } catch {
-    // Fall through to legacy reply formats.
-  }
-  const candidates = parseCandidateArray(text);
-  return candidates.map(candidate => ({ text: candidate, progression: false }));
+  return parseCandidateArray(text);
 }
 
 export function parseCandidateArray(text) {
@@ -434,7 +412,7 @@ export function buildPromptMessages(systemPrompt, history = { messages: [] }, va
     system: expanded,
     messages: hasHistoryPlaceholder ? [] : historyMessages.filter(message => message?.role !== 'system'),
     responseFormat: 'suggestions',
-    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Keep each reply to one short sentence, preferably under 30 Chinese characters or 15 words, and never over 40 Chinese characters or 20 words. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. If the recent scene has stagnated for about 6 exchanges, make 1 or 2 options gently advance it by one small plausible beat without forcing a resolution. Output ONLY a JSON array of exactly 4 objects with reply and progression fields.',
+    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Keep each reply to one short sentence, preferably under 30 Chinese characters or 15 words, and never over 40 Chinese characters or 20 words. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. Output ONLY a JSON array of exactly 4 distinct strings.',
   };
 }
 
@@ -535,15 +513,7 @@ export function buildCompletionRequest(config = {}, promptData = {}, signal) {
               type: 'array',
               minItems: 4,
               maxItems: 4,
-              items: {
-                type: 'object',
-                additionalProperties: false,
-                required: ['reply', 'progression'],
-                properties: {
-                  reply: { type: 'string' },
-                  progression: { type: 'boolean' },
-                },
-              },
+              items: { type: 'string', minLength: 1 },
             },
           },
         },
@@ -1130,10 +1100,8 @@ export function createPanel(documentImpl, callbacks = {}) {
     buttons.forEach((button, index) => {
       const item = list[index];
       const value = String(typeof item === 'object' ? item?.text ?? item?.reply ?? '' : item ?? '').trim();
-      const progression = typeof item === 'object' && Boolean(item?.progression);
       button.textContent = value;
-      button.classList.toggle('sqr-progression', progression);
-      button.title = progression ? `推进剧情：${value}` : value;
+      button.title = value;
       button.hidden = !value;
     });
     status.hidden = true;
@@ -1511,7 +1479,7 @@ export function bootstrap(context = {}) {
     generationId += 1;
     handledStopId = -1;
     characterRenderedGenerationId = -1;
-    cancelSuggestionRequest(true);
+    cancelSuggestionRequest(false);
   });
   eventHandler('CHARACTER_MESSAGE_RENDERED', () => {
     characterRenderedGenerationId = generationId;

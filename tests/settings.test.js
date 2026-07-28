@@ -35,8 +35,6 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.match(DEFAULT_SYSTEM_PROMPT, /You are NOT \{\{char\}\}/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /exactly 4 distinct/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /user style examples/);
-  assert.match(DEFAULT_SYSTEM_PROMPT, /scene stagnation/);
-  assert.match(DEFAULT_SYSTEM_PROMPT, /6 consecutive user-character exchanges/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /30 Chinese characters/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /never exceed 40 Chinese characters/);
 });
@@ -174,9 +172,9 @@ test('loading state hides empty candidates and centers its status', () => {
   assert.match(css, /#sqr-panel \.sqr-panel-status\s*\{[\s\S]*text-align:\s*center/);
 });
 
-test('progression candidates have a visible marker style', () => {
+test('candidate buttons do not define a pseudo-element marker style', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
-  assert.match(css, /\.sqr-candidate\.sqr-progression::before[\s\S]*content:\s*'↗'/);
+  assert.doesNotMatch(css, /\.sqr-candidate\.[\w-]+::before/);
 });
 
 test('drag scheduler keeps only the newest pending point until the frame runs', () => {
@@ -220,6 +218,16 @@ test('cancelled suggestion requests clear the loading panel state', () => {
   assert.deepEqual(calls, [['loading', false], ['hide']]);
   assert.equal(resetPanelAfterCancellation(panel, null, true), false);
   assert.deepEqual(calls, [['loading', false], ['hide']]);
+});
+
+test('generation cancellation keeps the completed suggestion panel visible', () => {
+  const calls = [];
+  const panel = {
+    setLoading: value => calls.push(['loading', value]),
+    hide: () => calls.push(['hide']),
+  };
+  assert.equal(resetPanelAfterCancellation(panel, { id: 1 }, false), true);
+  assert.deepEqual(calls, [['loading', false]]);
 });
 
 test('API keys prefer a Secrets adapter and never enter extension settings', async () => {
