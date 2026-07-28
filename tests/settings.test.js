@@ -32,6 +32,7 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.equal(DEFAULT_SETTINGS.compression.enabled, true);
   assert.equal(DEFAULT_SETTINGS.compression.threshold, 3000);
   assert.equal(DEFAULT_SETTINGS.api.maxTokens, 2048);
+  assert.equal(DEFAULT_SETTINGS.api.timeoutMs, 120000);
   assert.equal(DEFAULT_SETTINGS.api.authMode, 'bearer');
   assert.match(DEFAULT_SYSTEM_PROMPT, /You generate reply suggestions for the USER/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /You are NOT \{\{char\}\}/);
@@ -72,6 +73,12 @@ test('migrateSettings raises the old low token default for suggestion generation
 test('settings expose 2048 as the default max token value', () => {
   const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
   assert.match(html, /id="sqr-max-tokens"[^>]*max="4096"[^>]*value="2048"/);
+});
+
+test('settings expose a 120 second default request timeout', () => {
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.match(html, /id="sqr-timeout"[^>]*max="180"[^>]*value="120"/);
+  assert.equal(migrateSettings({ version: 4, api: { timeoutMs: 30000 } }).api.timeoutMs, 120000);
 });
 
 test('migrateSettings upgrades the original default prompt to user-perspective rules', () => {

@@ -75,6 +75,11 @@ test('OpenAI-compatible responses accept text-part content arrays', () => {
   assert.equal(parseProviderResponse({ choices: [{ message: { content: [{ type: 'text', text: '["a","b","c","d"]' }] } }] }, 'openai'), '["a","b","c","d"]');
 });
 
+test('OpenAI-compatible responses accept string content chunks and a single text part', () => {
+  assert.equal(parseProviderResponse({ choices: [{ message: { content: ['["a",', '"b","c","d"]'] } }] }, 'openai'), '["a","b","c","d"]');
+  assert.equal(parseProviderResponse({ choices: [{ message: { content: { type: 'text', text: '["a","b","c","d"]' } } }] }, 'openai'), '["a","b","c","d"]');
+});
+
 test('runtime API config prefers the current settings input key', () => {
   const config = resolveApiRequestConfig({ api: { type: 'google', autoDetect: true, url: 'https://gcli.ggchan.dev', key: '' } }, {
     inputApiKey: 'current-key',
@@ -213,6 +218,28 @@ test('OpenAI-compatible requests retry truncated JSON with larger token budgets'
   );
   assert.match(text, /"reply":"d"/);
   assert.deepEqual(requests, [256, 512, 1024]);
+});
+
+test('suggestion requests retry malformed JSON even when the gateway says stop', async () => {
+  const requests = [];
+  const fetchImpl = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    requests.push(body.max_tokens);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => requests.length === 1
+        ? { choices: [{ message: { content: '["a","b","c",' }, finish_reason: 'stop' }] }
+        : { choices: [{ message: { content: '["a","b","c","d"]' }, finish_reason: 'stop' }] },
+    };
+  };
+  const text = await requestCompletion(
+    { type: 'openai', url: 'https://gateway.example/v1', key: 'secret', model: 'gemini', maxTokens: 1024 },
+    { responseFormat: 'suggestions', messages: [] },
+    { fetch: fetchImpl },
+  );
+  assert.equal(text, '["a","b","c","d"]');
+  assert.deepEqual(requests, [1024, 2048]);
 });
 
 test('fake-stream models request streaming and aggregate SSE content', async () => {

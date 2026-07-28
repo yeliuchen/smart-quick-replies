@@ -22,6 +22,7 @@ test('prompt expansion replaces names, description, and plain-text history', () 
 
 test('candidate parser removes code fences and rejects duplicates or wrong counts', () => {
   assert.deepEqual(parseCandidateArray('~~~json\n["a","b","c","d"]\n~~~'), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(parseCandidateArray('["a","b","c","d"'), ['a', 'b', 'c', 'd']);
   assert.throws(() => parseCandidateArray('["a","a","b","c"]'), /four distinct/);
   assert.throws(() => parseCandidateArray('["a","b"]'), /four distinct/);
 });

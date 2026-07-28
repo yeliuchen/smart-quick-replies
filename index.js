@@ -37,7 +37,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     temperature: 0.9,
     maxTokens: 2048,
     topP: 0.95,
-    timeoutMs: 30000,
+    timeoutMs: 120000,
   },
   compression: {
     enabled: true,
@@ -100,7 +100,8 @@ export function migrateSettings(saved = {}) {
   if (source.systemPrompt === LEGACY_SYSTEM_PROMPT || usesPreviousDefault) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
   if (isPlainObject(source.api) && Number(source.api.maxTokens) > 0 && Number(source.api.maxTokens) <= 128) source.api.maxTokens = 2048;
   if (isPlainObject(source.api) && Number(source.version ?? 0) < 3 && Number(source.api.maxTokens) === 512) source.api.maxTokens = 2048;
-  source.version = 4;
+  if (isPlainObject(source.api) && Number(source.version ?? 0) < 5 && Number(source.api.timeoutMs) === 30000) source.api.timeoutMs = 120000;
+  source.version = 5;
   return source;
 }
 
@@ -250,6 +251,38 @@ const extractNumberedReplies = text => {
   return [1, 2, 3, 4].map(index => replies.get(index));
 };
 
+const extractCompleteStringItems = text => {
+  const source = removeCodeFences(text);
+  const start = source.indexOf('[');
+  if (start < 0) return null;
+  const items = [];
+  let index = start + 1;
+  while (index < source.length && items.length < 4) {
+    while (/\s|,/.test(source[index] ?? '')) index += 1;
+    if (source[index] !== '"') return null;
+    const itemStart = index;
+    index += 1;
+    let escaped = false;
+    while (index < source.length) {
+      const character = source[index];
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') {
+        index += 1;
+        break;
+      }
+      index += 1;
+    }
+    if (source[index - 1] !== '"') return null;
+    try {
+      items.push(JSON.parse(source.slice(itemStart, index)));
+    } catch {
+      return null;
+    }
+  }
+  return items.length === 4 ? items : null;
+};
+
 const normalizeCandidateText = value => String(value ?? '')
   .trim()
   .replace(/^\s*["“「『]+/, '')
@@ -277,6 +310,8 @@ export function parseCandidateArray(text) {
   } catch {
     // Fall through to the Markdown option parser for reasoning-model output.
   }
+  const recoveredStrings = validateCandidates(extractCompleteStringItems(text));
+  if (recoveredStrings) return recoveredStrings;
   const replyLines = validateCandidates(extractReplyLines(text));
   if (replyLines) return replyLines;
   const numberedReplies = validateCandidates(extractNumberedReplies(text));
@@ -548,31 +583,30 @@ export function buildModelsRequest(config = {}) {
   };
 }
 
+const textFromParts = value => {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value.map(part => typeof part === 'string' ? part : part?.text ?? '').filter(Boolean).join('');
+  }
+  return typeof value?.text === 'string' ? value.text : '';
+};
+
 export function parseProviderResponse(payload, apiType = 'openai') {
   const type = getApiType({ type: apiType });
   if (typeof payload === 'string') return payload;
   if (type === 'google') {
     const parts = payload?.candidates?.[0]?.content?.parts;
-    const text = Array.isArray(parts)
-      ? parts.filter(part => typeof part?.text === 'string').map(part => part.text).join('')
-      : '';
+    const text = textFromParts(parts);
     if (text) return text;
   }
   if (type === 'anthropic') {
-    const textBlock = Array.isArray(payload?.content)
-      ? payload.content.find(block => block?.type === 'text' && typeof block.text === 'string')
-      : null;
-    if (textBlock) return textBlock.text;
+    const text = textFromParts(payload?.content);
+    if (text) return text;
   }
   const choice = payload?.choices?.[0];
   if (typeof choice?.message?.content === 'string') return choice.message.content;
-  if (Array.isArray(choice?.message?.content)) {
-    const text = choice.message.content
-      .filter(part => typeof part?.text === 'string')
-      .map(part => part.text)
-      .join('');
-    if (text) return text;
-  }
+  const messageText = textFromParts(choice?.message?.content);
+  if (messageText) return messageText;
   if (typeof choice?.text === 'string') return choice.text;
   if (typeof payload?.output_text === 'string') return payload.output_text;
   throw new Error('API response did not contain text');
@@ -636,10 +670,8 @@ export function summarizeProviderPayload(payload, apiType = 'openai') {
   const choice = payload?.choices?.[0];
   const message = choice?.message;
   const standardContent = type === 'google'
-    ? payload?.candidates?.[0]?.content?.parts?.filter(part => typeof part?.text === 'string').map(part => part.text).join('')
-    : Array.isArray(message?.content)
-      ? message.content.filter(part => typeof part?.text === 'string').map(part => part.text).join('')
-      : message?.content ?? choice?.text ?? payload?.output_text ?? '';
+    ? textFromParts(payload?.candidates?.[0]?.content?.parts)
+    : textFromParts(message?.content) || choice?.text || payload?.output_text || '';
   const reasoning = type === 'google'
     ? ''
     : message?.reasoning_content ?? message?.reasoning ?? '';
@@ -747,17 +779,25 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     let payload = await fetchJson(fetchImpl, request.url, request.init, { stream: streaming });
     debug?.({ phase: 'response', attempt: 1, ...debugBase, payload: summarizeProviderPayload(payload, config.type) });
     let attempt = 1;
-  const retryBudgets = getApiType(config) === 'lmstudio' ? [512, 1024, 2048] : [256, 512, 1024, 2048, 4096];
+  const retryBudgets = getApiType(config) === 'lmstudio' ? [512, 1024, 2048, 4096] : [256, 512, 1024, 2048, 4096];
   const effectiveMaxTokens = getEffectiveMaxTokens(config);
     for (const retryMaxTokens of retryBudgets) {
       const choice = payload?.choices?.[0];
       const message = choice?.message;
       const reasoningOnly = getApiType(config) === 'lmstudio'
         && message
-        && !String(message.content ?? '').trim();
+        && !textFromParts(message.content).trim();
       const truncated = choice?.finish_reason === 'length'
         || payload?.candidates?.[0]?.finishReason === 'MAX_TOKENS';
-      if (!reasoningOnly && !truncated) break;
+      let invalidSuggestion = false;
+      if (promptData.responseFormat === 'suggestions' && !reasoningOnly && !truncated) {
+        try {
+          parseCandidateArray(parseProviderResponse(payload, config.type));
+        } catch {
+          invalidSuggestion = true;
+        }
+      }
+      if (!reasoningOnly && !truncated && !invalidSuggestion) break;
       if (retryMaxTokens <= effectiveMaxTokens) continue;
       const retryConfig = {
         ...config,
@@ -770,7 +810,7 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     }
     const type = getApiType(config);
     const message = payload?.choices?.[0]?.message;
-    if (type === 'lmstudio' && message && !String(message.content ?? '').trim() && String(message.reasoning_content ?? '').trim()) {
+    if (type === 'lmstudio' && message && !textFromParts(message.content).trim() && String(message.reasoning_content ?? '').trim()) {
       throw new ProviderResponseError('LM Studio 只返回了 reasoning 内容，没有标准 content；请关闭模型思考/深度推理，或提高 max_tokens 后重试。');
     }
     return parseProviderResponse(payload, config.type);
@@ -811,11 +851,16 @@ export function getInputElement(root, settingPath) {
 
 const getNestedValue = (source, path) => String(path).split('.').reduce((value, key) => value?.[key], source);
 
+const getSettingScale = element => {
+  const scale = Number(element?.dataset?.sqrScale ?? 1);
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
+};
+
 const parseSettingValue = element => {
   if (element.type === 'checkbox') return Boolean(element.checked);
   if (element.type === 'number' || element.type === 'range') {
     const value = Number(element.value);
-    return Number.isFinite(value) ? value : 0;
+    return Number.isFinite(value) ? value * getSettingScale(element) : 0;
   }
   return element.value;
 };
@@ -842,7 +887,11 @@ export function renderSettings(container, settings = {}, handlers = {}) {
     const path = element.dataset.sqrSetting;
     const value = getNestedValue(settings, path);
     if (element.type === 'checkbox') element.checked = Boolean(value);
-    else if (value !== undefined && value !== null) element.value = String(value);
+    else if (value !== undefined && value !== null) {
+      element.value = element.type === 'number' || element.type === 'range'
+        ? String(Number(value) / getSettingScale(element))
+        : String(value);
+    }
     updateOutput(path);
     const eventName = element.type === 'range' ? 'input' : 'change';
     listen(element, eventName, () => {
