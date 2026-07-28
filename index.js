@@ -36,7 +36,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     url: 'http://localhost:1234/v1',
     model: '',
     temperature: 0.9,
-    maxTokens: 512,
+    maxTokens: 2048,
     topP: 0.95,
     timeoutMs: 30000,
   },
@@ -99,8 +99,9 @@ export function migrateSettings(saved = {}) {
         || !source.systemPrompt.includes('scene stagnation')
         || !source.systemPrompt.includes('Return exactly 4 JSON objects'));
   if (source.systemPrompt === LEGACY_SYSTEM_PROMPT || usesPreviousDefault) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
-  if (isPlainObject(source.api) && Number(source.api.maxTokens) > 0 && Number(source.api.maxTokens) <= 128) source.api.maxTokens = 512;
-  source.version = 2;
+  if (isPlainObject(source.api) && Number(source.api.maxTokens) > 0 && Number(source.api.maxTokens) <= 128) source.api.maxTokens = 2048;
+  if (isPlainObject(source.api) && Number(source.version ?? 0) < 3 && Number(source.api.maxTokens) === 512) source.api.maxTokens = 2048;
+  source.version = 3;
   return source;
 }
 
