@@ -439,10 +439,14 @@ const getApiKey = config => String(config?.key ?? config?.apiKey ?? '').trim();
 
 const getAuthMode = config => String(config?.authMode || 'bearer').toLowerCase();
 
+export function shouldUseStreaming(config = {}) {
+  return Boolean(config.stream) || /(?:假流式|fake[-_ ]?stream|streaming)/i.test(String(config.model ?? ''));
+}
+
 const buildProviderHeaders = config => {
   const type = getApiType(config);
   const key = getApiKey(config);
-  const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+  const headers = { 'Content-Type': 'application/json', Accept: shouldUseStreaming(config) ? 'text/event-stream' : 'application/json' };
   if (type === 'google') {
     if (key) headers['x-goog-api-key'] = key;
   } else if (type === 'anthropic') {
@@ -504,7 +508,7 @@ export function buildCompletionRequest(config = {}, promptData = {}, signal) {
     : {
       ...common,
       max_tokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
-      stream: false,
+      stream: shouldUseStreaming(config),
       ...(type === 'lmstudio' ? { reasoning: false } : {}),
       messages,
     };
@@ -644,7 +648,46 @@ export function summarizeProviderPayload(payload, apiType = 'openai') {
   };
 }
 
-const fetchJson = async (fetchImpl, url, init) => {
+const parseSsePayload = text => {
+  let content = '';
+  let reasoning = '';
+  let finishReason = null;
+  let usage = null;
+  for (const line of String(text ?? '').split(/\r?\n/)) {
+    const data = line.startsWith('data:') ? line.slice(5).trim() : '';
+    if (!data || data === '[DONE]') continue;
+    try {
+      const payload = JSON.parse(data);
+      const choice = payload?.choices?.[0];
+      const delta = choice?.delta ?? {};
+      const deltaContent = Array.isArray(delta.content)
+        ? delta.content.filter(part => typeof part?.text === 'string').map(part => part.text).join('')
+        : String(delta.content ?? '');
+      content += deltaContent;
+      reasoning += String(delta.reasoning_content ?? '');
+      finishReason = choice?.finish_reason ?? finishReason;
+      usage = payload?.usage ?? usage;
+    } catch {
+      // Ignore keep-alive or malformed SSE lines and let response validation report if no text arrived.
+    }
+  }
+  return { choices: [{ message: { role: 'assistant', content, reasoning_content: reasoning }, finish_reason: finishReason }], usage };
+};
+
+const readStreamText = async body => {
+  const reader = body?.getReader?.();
+  if (!reader) return '';
+  const decoder = new TextDecoder();
+  let text = '';
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    text += decoder.decode(chunk.value, { stream: true });
+  }
+  return text + decoder.decode();
+};
+
+const fetchJson = async (fetchImpl, url, init, options = {}) => {
   const response = await fetchImpl(url, init);
   if (!response?.ok) {
     let detail = '';
@@ -656,6 +699,7 @@ const fetchJson = async (fetchImpl, url, init) => {
     }
     throw new ProviderHttpError(response?.status, detail);
   }
+  if (options.stream && response?.body?.getReader) return parseSsePayload(await readStreamText(response.body));
   return response.json();
 };
 
@@ -690,7 +734,8 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
   };
   debug?.({ phase: 'request', ...debugBase });
   try {
-    let payload = await fetchJson(fetchImpl, request.url, request.init);
+    const streaming = shouldUseStreaming(config);
+    let payload = await fetchJson(fetchImpl, request.url, request.init, { stream: streaming });
     debug?.({ phase: 'response', attempt: 1, ...debugBase, payload: summarizeProviderPayload(payload, config.type) });
     let attempt = 1;
     const retryBudgets = getApiType(config) === 'lmstudio' ? [512, 1024] : [256, 512, 1024];
@@ -710,7 +755,7 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
       };
       const retryRequest = buildCompletionRequest(retryConfig, promptData, controller?.signal ?? externalSignal);
       attempt += 1;
-      payload = await fetchJson(fetchImpl, retryRequest.url, retryRequest.init);
+      payload = await fetchJson(fetchImpl, retryRequest.url, retryRequest.init, { stream: streaming });
       debug?.({ phase: 'response', attempt, ...debugBase, maxTokens: retryConfig.maxTokens, payload: summarizeProviderPayload(payload, config.type) });
     }
     const type = getApiType(config);

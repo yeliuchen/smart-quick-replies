@@ -10,6 +10,7 @@ import {
   requestModels,
   resolveApiRequestConfig,
   summarizeProviderPayload,
+  shouldUseStreaming,
 } from '../index.js';
 
 test('OpenAI request uses system messages and bearer authentication', () => {
@@ -196,6 +197,29 @@ test('OpenAI-compatible requests retry truncated JSON with larger token budgets'
   );
   assert.match(text, /"reply":"d"/);
   assert.deepEqual(requests, [81, 256, 512]);
+});
+
+test('fake-stream models request streaming and aggregate SSE content', async () => {
+  assert.equal(shouldUseStreaming({ model: '假流式-gemini-3-flash-preview' }), true);
+  const encoder = new TextEncoder();
+  const chunks = [
+    '[{"reply":"a",',
+    '"progression":false},{"reply":"b",',
+    '"progression":false},{"reply":"c",',
+    '"progression":false},{"reply":"d","progression":false}]',
+  ].map((content, index, values) => `data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: index === values.length - 1 ? 'stop' : null }] })}\n\n`).concat('data: [DONE]\n\n');
+  const text = await requestCompletion({ type: 'openai', url: 'https://gateway.example/v1', key: 'secret', model: '假流式-gemini-3-flash-preview', maxTokens: 256 }, { messages: [] }, {
+    fetch: async (_url, init) => {
+      assert.equal(JSON.parse(init.body).stream, true);
+      let index = 0;
+      return {
+        ok: true,
+        status: 200,
+        body: { getReader: () => ({ read: async () => index < chunks.length ? { done: false, value: encoder.encode(chunks[index++]) } : { done: true, value: undefined } }) },
+      };
+    },
+  });
+  assert.match(text, /"reply":"d"/);
 });
 
 test('LM Studio retries an empty response even without reasoning content', async () => {
