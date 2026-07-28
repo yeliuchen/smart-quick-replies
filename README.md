@@ -2,6 +2,8 @@
 
 这是一个 SillyTavern 第三方扩展。角色回复完成后，它会根据最近的聊天内容请求独立 API，生成 4 条简短的用户候选回复。点击候选会填入 `#send_textarea`，刷新按钮会重新请求。
 
+快捷回复面板会在支持 WebGL 时动态加载 [LiquidGlass](https://github.com/ybouane/liquidglass) 的液态玻璃效果；无法加载 CDN 或浏览器不支持 WebGL 时，会自动回退到扩展内置样式。
+
 ## 安装
 
 将整个 `smart-quick-replies` 文件夹复制或克隆到：

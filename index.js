@@ -977,6 +977,37 @@ export function createPanel(documentImpl, callbacks = {}) {
   };
 }
 
+const LIQUID_GLASS_CDN = 'https://cdn.jsdelivr.net/npm/@ybouane/liquidglass/dist/index.js';
+
+export async function initLiquidGlass(documentImpl, windowImpl, glassElement) {
+  if (!documentImpl?.body || !windowImpl || !glassElement) return null;
+
+  // LiquidGlass is loaded only in the browser so Node-based extension tests do
+  // not need to resolve a remote HTTPS module.
+  const { LiquidGlass } = await import(LIQUID_GLASS_CDN);
+  glassElement.dataset.config = JSON.stringify({
+    blurAmount: 0.2,
+    refraction: 0.72,
+    chromAberration: 0.035,
+    edgeHighlight: 0.08,
+    specular: 0.12,
+    fresnel: 0.8,
+    cornerRadius: 12,
+    zRadius: 24,
+    opacity: 0.94,
+    shadowOpacity: 0.28,
+    shadowSpread: 10,
+    shadowOffsetY: 3,
+  });
+
+  const instance = await LiquidGlass.init({
+    root: documentImpl.body,
+    glassElements: [glassElement],
+  });
+  glassElement.classList.add('sqr-liquidglass-ready');
+  return instance;
+}
+
 const DEFAULT_EVENT_TYPES = Object.freeze({
   GENERATION_STARTED: 'GENERATION_STARTED',
   GENERATION_STOPPED: 'GENERATION_STOPPED',
@@ -1027,6 +1058,12 @@ export function bootstrap(context = {}) {
     },
     onRefresh: () => requestSuggestions(lastRequestInterrupted),
   });
+  let liquidGlassInstance = null;
+  void initLiquidGlass(documentImpl, windowImpl, panel.element)
+    .then(instance => { liquidGlassInstance = instance; })
+    .catch(() => {
+      // Keep the existing CSS glass styling when WebGL/CDN loading is unavailable.
+    });
   const cleanups = [];
   let lastRequestInterrupted = false;
   let stoppedTimer = null;
@@ -1148,7 +1185,11 @@ export function bootstrap(context = {}) {
   const sendForm = documentImpl.querySelector('#send_form');
   (sendButton?.parentElement ?? sendForm ?? documentImpl.body)?.appendChild(manualButton);
   cleanups.push(() => manualButton.remove?.());
-  cleanups.push(() => panel.destroy());
+  cleanups.push(() => {
+    liquidGlassInstance?.destroy?.();
+    liquidGlassInstance = null;
+    panel.destroy();
+  });
   const manualClick = () => requestSuggestions(false);
   manualButton.addEventListener('click', manualClick);
   cleanups.push(() => manualButton.removeEventListener('click', manualClick));

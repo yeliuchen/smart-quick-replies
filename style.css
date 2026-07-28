@@ -331,6 +331,14 @@
   z-index: 10050;
 }
 
+/* LiquidGlass supplies the rendered surface through its injected canvas. */
+#sqr-panel.sqr-liquidglass-ready {
+  --sqr-panel-background: transparent;
+  backdrop-filter: none;
+  background: transparent;
+  border-color: color-mix(in srgb, var(--SmartThemeBorderColor, #fff) 70%, transparent);
+}
+
 #sqr-panel.sqr-dragging {
   cursor: grabbing;
   will-change: transform;
