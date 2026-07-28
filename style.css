@@ -375,6 +375,14 @@
   white-space: normal;
 }
 
+#sqr-panel .sqr-candidate.sqr-progression::before {
+  color: var(--SmartThemeQuoteColor, #75b7ff);
+  content: '↗';
+  display: inline-block;
+  font-weight: 700;
+  margin-right: 0.35rem;
+}
+
 #sqr-panel .sqr-candidate[hidden] {
   display: none;
 }

@@ -127,6 +127,11 @@ test('loading state hides empty candidates and centers its status', () => {
   assert.match(css, /#sqr-panel \.sqr-panel-status\s*\{[\s\S]*text-align:\s*center/);
 });
 
+test('progression candidates have a visible marker style', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.sqr-candidate\.sqr-progression::before[\s\S]*content:\s*'↗'/);
+});
+
 test('drag scheduler keeps only the newest pending point until the frame runs', () => {
   const frames = [];
   const scheduler = createDragScheduler(callback => frames.push(callback));

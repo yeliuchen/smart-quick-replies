@@ -13,10 +13,11 @@ Rules:
 - A scene advance may introduce a concrete user action, a new question, a nearby task, or a modest change in focus. Do not abruptly end the scene, skip major events, decide the character's reaction, or take control away from the user.
 - Never continue {{char}}'s dialogue, thoughts, actions, narration, or roleplay.
 - Never write stage directions, third-person narration, labels, explanations, or analysis.
+- Return exactly 4 JSON objects with this shape: {"reply":"message text","progression":false}. Set progression to true only for a gentle, small scene-advancing suggestion; otherwise set it to false.
 - Return message text only: do not wrap a reply in quotation marks and do not append labels such as "Acting", "Draft", "Option", or style explanations.
 - Treat the latest character message as the message the user needs to answer.
 
-Reply ONLY with a JSON array of exactly 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]`;
+Reply ONLY with a JSON array of exactly 4 objects, like: [{"reply":"reply1","progression":false},{"reply":"reply2","progression":true},{"reply":"reply3","progression":false},{"reply":"reply4","progression":false}]`;
 
 export const DEFAULT_SETTINGS = Object.freeze({
   version: 2,
@@ -93,7 +94,9 @@ export function migrateSettings(saved = {}) {
     && !source.systemPrompt.includes('user style examples')
     || typeof source.systemPrompt === 'string'
       && source.systemPrompt.includes('user style examples')
-      && (!source.systemPrompt.includes('do not wrap a reply') || !source.systemPrompt.includes('scene stagnation'));
+      && (!source.systemPrompt.includes('do not wrap a reply')
+        || !source.systemPrompt.includes('scene stagnation')
+        || !source.systemPrompt.includes('Return exactly 4 JSON objects'));
   if (source.systemPrompt === LEGACY_SYSTEM_PROMPT || usesPreviousDefault) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
   source.version = 2;
   return source;
@@ -248,6 +251,31 @@ const validateCandidates = parsed => {
   return new Set(candidates).size === 4 ? candidates : null;
 };
 
+const validateCandidateResults = parsed => {
+  if (!Array.isArray(parsed) || parsed.length !== 4) return null;
+  const results = parsed.map(item => {
+    if (typeof item === 'string') return { text: normalizeCandidateText(item), progression: false };
+    if (!item || typeof item !== 'object') return null;
+    return {
+      text: normalizeCandidateText(item.reply ?? item.text ?? item.content ?? ''),
+      progression: Boolean(item.progression ?? item.sceneProgression ?? item.advanceScene),
+    };
+  });
+  if (results.some(result => !result?.text) || new Set(results.map(result => result.text)).size !== 4) return null;
+  return results;
+};
+
+export function parseCandidateResults(text) {
+  try {
+    const results = validateCandidateResults(JSON.parse(extractJsonArray(text)));
+    if (results) return results;
+  } catch {
+    // Fall through to legacy reply formats.
+  }
+  const candidates = parseCandidateArray(text);
+  return candidates.map(candidate => ({ text: candidate, progression: false }));
+}
+
 export function parseCandidateArray(text) {
   try {
     const candidates = validateCandidates(JSON.parse(extractJsonArray(text)));
@@ -389,7 +417,7 @@ export function buildPromptMessages(systemPrompt, history = { messages: [] }, va
   return {
     system: expanded,
     messages: hasHistoryPlaceholder ? [] : historyMessages.filter(message => message?.role !== 'system'),
-    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. If the recent scene has stagnated for about 6 exchanges, make 1 or 2 options gently advance it by one small plausible beat without forcing a resolution. Output ONLY a JSON array of exactly 4 short strings.',
+    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. If the recent scene has stagnated for about 6 exchanges, make 1 or 2 options gently advance it by one small plausible beat without forcing a resolution. Output ONLY a JSON array of exactly 4 objects with reply and progression fields.',
   };
 }
 
@@ -865,9 +893,12 @@ export function createPanel(documentImpl, callbacks = {}) {
   const setCandidates = values => {
     const list = Array.isArray(values) ? values : [];
     buttons.forEach((button, index) => {
-      const value = String(list[index] ?? '').trim();
+      const item = list[index];
+      const value = String(typeof item === 'object' ? item?.text ?? item?.reply ?? '' : item ?? '').trim();
+      const progression = typeof item === 'object' && Boolean(item?.progression);
       button.textContent = value;
-      button.title = value;
+      button.classList.toggle('sqr-progression', progression);
+      button.title = progression ? `推进剧情：${value}` : value;
       button.hidden = !value;
     });
     status.hidden = true;
@@ -1128,7 +1159,7 @@ export function bootstrap(context = {}) {
         AbortController: context.AbortController ?? windowImpl?.AbortController ?? globalThis.AbortController,
       });
       if (!coordinator.isCurrent(request.id)) return;
-      panel.setCandidates(parseCandidateArray(raw));
+      panel.setCandidates(parseCandidateResults(raw));
       panel.setLoading(false);
       showPanel();
     } catch (error) {

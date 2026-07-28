@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectApiType, normalizeEndpoint, expandPrompt, parseCandidateArray, parseProviderResponse } from '../index.js';
+import { detectApiType, normalizeEndpoint, expandPrompt, parseCandidateArray, parseCandidateResults, parseProviderResponse } from '../index.js';
 
 test('auto detection recognizes Anthropic and LM Studio URLs', () => {
   assert.equal(detectApiType('https://api.anthropic.com/v1', 'openai', true), 'anthropic');
@@ -98,4 +98,18 @@ test('candidate parser removes outer quotes and acting metadata', () => {
     '3. "Reply three" (Draft)',
     '4. "Reply four"',
   ].join('\n')), ['Reply one', 'Reply two', 'Reply three', 'Reply four']);
+});
+
+test('candidate results preserve the scene progression marker', () => {
+  assert.deepEqual(parseCandidateResults(JSON.stringify([
+    { reply: 'Stay with the current topic.', progression: false },
+    { reply: 'Ask what happens next.', progression: true },
+    { reply: 'Tease the character gently.', progression: false },
+    { reply: 'Offer a small new action.', progression: true },
+  ])), [
+    { text: 'Stay with the current topic.', progression: false },
+    { text: 'Ask what happens next.', progression: true },
+    { text: 'Tease the character gently.', progression: false },
+    { text: 'Offer a small new action.', progression: true },
+  ]);
 });
