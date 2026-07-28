@@ -154,14 +154,15 @@ test('position store persists, reads, and clears JSON coordinates', () => {
   assert.equal(store.read(), null);
 });
 
-test('request coordinator makes only the newest request current', () => {
+test('request coordinator reuses an active request instead of duplicating it', () => {
   const coordinator = createRequestCoordinator();
   const first = coordinator.begin();
   const second = coordinator.begin();
-  assert.equal(coordinator.isCurrent(first.id), false);
-  assert.equal(coordinator.isCurrent(second.id), true);
+  assert.equal(second.id, first.id);
+  assert.equal(second.reused, true);
+  assert.equal(coordinator.isCurrent(first.id), true);
   coordinator.cancel();
-  assert.equal(coordinator.isCurrent(second.id), false);
+  assert.equal(coordinator.isCurrent(first.id), false);
 });
 
 test('API keys prefer a Secrets adapter and never enter extension settings', async () => {

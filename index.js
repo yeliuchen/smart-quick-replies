@@ -600,6 +600,13 @@ export class ProviderHttpError extends Error {
   }
 }
 
+export class ProviderResponseError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ProviderResponseError';
+  }
+}
+
 const fetchJson = async (fetchImpl, url, init) => {
   const response = await fetchImpl(url, init);
   if (!response?.ok) {
@@ -650,6 +657,11 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
       };
       const retryRequest = buildCompletionRequest(retryConfig, promptData, controller?.signal ?? externalSignal);
       payload = await fetchJson(fetchImpl, retryRequest.url, retryRequest.init);
+    }
+    const type = getApiType(config);
+    const message = payload?.choices?.[0]?.message;
+    if (type === 'lmstudio' && message && !String(message.content ?? '').trim() && String(message.reasoning_content ?? '').trim()) {
+      throw new ProviderResponseError('LM Studio 只返回了 reasoning 内容，没有标准 content；请关闭模型思考/深度推理，或提高 max_tokens 后重试。');
     }
     return parseProviderResponse(payload, config.type);
   } catch (error) {
@@ -852,11 +864,11 @@ export function createRequestCoordinator(AbortControllerImpl = globalThis.AbortC
   let active = null;
   return {
     begin() {
-      if (active?.controller) active.controller.abort();
+      if (active) return { ...active, reused: true };
       const id = ++sequence;
       const controller = typeof AbortControllerImpl === 'function' ? new AbortControllerImpl() : null;
-      active = { id, controller };
-      return { id, controller, signal: controller?.signal };
+      active = { id, controller, signal: controller?.signal };
+      return { ...active, reused: false };
     },
     isCurrent(id) {
       return active?.id === id;
@@ -1181,8 +1193,12 @@ export function bootstrap(context = {}) {
   const requestSuggestions = async (interrupted = false) => {
     const currentSettings = getSettings();
     if (currentSettings.triggerMode === 'off') return;
-    lastRequestInterrupted = Boolean(interrupted);
     const request = coordinator.begin();
+    if (request.reused) {
+      showPanel();
+      return;
+    }
+    lastRequestInterrupted = Boolean(interrupted);
     panel.setCandidates([]);
     panel.setLoading(true);
     showPanel();

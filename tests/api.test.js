@@ -168,6 +168,18 @@ test('LM Studio retries an empty response even without reasoning content', async
   assert.equal(callCount, 2);
 });
 
+test('LM Studio reports when reasoning consumed the whole response budget', async () => {
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ choices: [{ message: { content: '', reasoning_content: 'long internal reasoning' }, finish_reason: 'length' }] }),
+  });
+  await assert.rejects(
+    requestCompletion({ type: 'lmstudio', url: 'http://localhost:1234/v1', model: 'gemma', maxTokens: 80 }, { messages: [] }, { fetch: fetchImpl }),
+    error => /reasoning|推理|最终内容/i.test(error.message) && /content/i.test(error.message),
+  );
+});
+
 test('completion and model requests use injectable fetch dependencies', async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {
