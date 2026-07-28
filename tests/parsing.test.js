@@ -79,3 +79,14 @@ test('candidate parser accepts numbered replies recovered from reasoning content
     'Fourth user reply',
   ]);
 });
+
+test('candidate parser accepts final Message labels from reasoning content', () => {
+  const text = [
+    '* Option 1: compliant',
+    '* Message 1: "One" (playful)',
+    '* Message 2: "Two" (teasing)',
+    '* Message 3: "Three" (soft)',
+    '* Message 4: "Four" (bold)',
+  ].join('\n');
+  assert.deepEqual(parseCandidateArray(text), ['One', 'Two', 'Three', 'Four']);
+});

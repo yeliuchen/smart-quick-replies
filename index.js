@@ -214,7 +214,7 @@ const extractMarkdownOptions = text => {
 
 const extractReplyLines = text => {
   const source = String(text ?? '');
-  const matches = [...source.matchAll(/(?:^|\r?\n)\s*(?:[-*]\s*)?(?:\*\*)?Reply\s*([1-4])(?:\*\*)?\s*[:：]\s*(?:"([\s\S]*?)"|([^\r\n]+))/gi)];
+  const matches = [...source.matchAll(/(?:^|\r?\n)\s*(?:[-*]\s*)?(?:\*\*)?(?:Reply|Message)\s*([1-4])(?:\*\*)?\s*[:：]\s*(?:"([\s\S]*?)"|([^\r\n]+))/gi)];
   const replies = new Map(matches.map(match => [Number(match[1]), (match[2] ?? match[3] ?? '').trim()]));
   if (replies.size !== 4 || [...replies.values()].some(value => !value)) return null;
   return [1, 2, 3, 4].map(index => replies.get(index));
