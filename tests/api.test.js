@@ -11,6 +11,7 @@ import {
   resolveApiRequestConfig,
   summarizeProviderPayload,
   shouldUseStreaming,
+  getEffectiveMaxTokens,
 } from '../index.js';
 
 test('OpenAI request uses system messages and bearer authentication', () => {
@@ -18,6 +19,12 @@ test('OpenAI request uses system messages and bearer authentication', () => {
   assert.equal(request.url, 'http://localhost:1234/v1/chat/completions');
   assert.equal(request.init.headers.Authorization, 'Bearer secret');
   assert.deepEqual(JSON.parse(request.init.body).messages, [{ role: 'system', content: 'system' }, { role: 'user', content: 'hi' }, { role: 'user', content: 'Generate now.' }]);
+});
+
+test('provider-specific token floors avoid predictable first-attempt truncation', () => {
+  assert.equal(getEffectiveMaxTokens({ type: 'openai', maxTokens: 80 }), 256);
+  assert.equal(getEffectiveMaxTokens({ type: 'lmstudio', maxTokens: 80 }), 512);
+  assert.equal(getEffectiveMaxTokens({ type: 'openai', model: '假流式-gemini-3-flash-preview', maxTokens: 80 }), 1024);
 });
 
 test('OpenAI-compatible requests support x-api-key and no-auth modes', () => {
@@ -45,7 +52,7 @@ test('Google Gemini requests use native contents and x-goog-api-key authenticati
     { role: 'model', parts: [{ text: 'hi' }] },
     { role: 'user', parts: [{ text: 'Generate four replies.' }] },
   ]);
-  assert.deepEqual(body.generationConfig, { temperature: 0.7, topP: 0.9, maxOutputTokens: 80 });
+  assert.deepEqual(body.generationConfig, { temperature: 0.7, topP: 0.9, maxOutputTokens: 256 });
 });
 
 test('Anthropic request uses top-level system and x-api-key', () => {
@@ -147,7 +154,7 @@ test('LM Studio retries a reasoning-only length response with a larger token bud
   const requests = [];
   const fetchImpl = async (url, init) => {
     requests.push(JSON.parse(init.body));
-    if (requests.length <= 2) {
+    if (requests.length === 1) {
       return {
         ok: true,
         status: 200,
@@ -167,9 +174,8 @@ test('LM Studio retries a reasoning-only length response with a larger token bud
     { fetch: fetchImpl },
   );
   assert.equal(text, '["a","b","c","d"]');
-  assert.equal(requests[0].max_tokens, 80);
-  assert.equal(requests[1].max_tokens, 512);
-  assert.equal(requests[2].max_tokens, 1024);
+  assert.equal(requests[0].max_tokens, 512);
+  assert.equal(requests[1].max_tokens, 1024);
 });
 
 test('OpenAI-compatible requests retry truncated JSON with larger token budgets', async () => {
@@ -196,7 +202,7 @@ test('OpenAI-compatible requests retry truncated JSON with larger token budgets'
     { fetch: fetchImpl },
   );
   assert.match(text, /"reply":"d"/);
-  assert.deepEqual(requests, [81, 256, 512]);
+  assert.deepEqual(requests, [256, 512, 1024]);
 });
 
 test('fake-stream models request streaming and aggregate SSE content', async () => {

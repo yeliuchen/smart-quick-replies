@@ -23,7 +23,7 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.equal(DEFAULT_SETTINGS.historyLimit, 20);
   assert.equal(DEFAULT_SETTINGS.compression.enabled, true);
   assert.equal(DEFAULT_SETTINGS.compression.threshold, 3000);
-  assert.equal(DEFAULT_SETTINGS.api.maxTokens, 80);
+  assert.equal(DEFAULT_SETTINGS.api.maxTokens, 512);
   assert.equal(DEFAULT_SETTINGS.api.authMode, 'bearer');
   assert.match(DEFAULT_SYSTEM_PROMPT, /You generate reply suggestions for the USER/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /You are NOT \{\{char\}\}/);
@@ -47,6 +47,12 @@ test('migrateSettings maps the first version keys into the current contract', ()
   assert.equal(migrated.historyLimit, 8);
   assert.equal(migrated.interruptedAutoGenerate, false);
   assert.equal(migrated.systemPrompt, 'custom');
+});
+
+test('migrateSettings raises the old low token default for suggestion generation', () => {
+  assert.equal(migrateSettings({ api: { maxTokens: 80 } }).api.maxTokens, 512);
+  assert.equal(migrateSettings({ api: { maxTokens: 81 } }).api.maxTokens, 512);
+  assert.equal(migrateSettings({ api: { maxTokens: 256 } }).api.maxTokens, 256);
 });
 
 test('migrateSettings upgrades the original default prompt to user-perspective rules', () => {

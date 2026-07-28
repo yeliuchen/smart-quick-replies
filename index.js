@@ -36,7 +36,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     url: 'http://localhost:1234/v1',
     model: '',
     temperature: 0.9,
-    maxTokens: 80,
+    maxTokens: 512,
     topP: 0.95,
     timeoutMs: 30000,
   },
@@ -99,6 +99,7 @@ export function migrateSettings(saved = {}) {
         || !source.systemPrompt.includes('scene stagnation')
         || !source.systemPrompt.includes('Return exactly 4 JSON objects'));
   if (source.systemPrompt === LEGACY_SYSTEM_PROMPT || usesPreviousDefault) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
+  if (isPlainObject(source.api) && Number(source.api.maxTokens) > 0 && Number(source.api.maxTokens) <= 128) source.api.maxTokens = 512;
   source.version = 2;
   return source;
 }
@@ -443,6 +444,16 @@ export function shouldUseStreaming(config = {}) {
   return Boolean(config.stream) || /(?:假流式|fake[-_ ]?stream|streaming)/i.test(String(config.model ?? ''));
 }
 
+export function getEffectiveMaxTokens(config = {}) {
+  const requested = Math.max(1, Number(config.maxTokens ?? config.max_tokens ?? 80) || 80);
+  const minimum = shouldUseStreaming(config)
+    ? 1024
+    : getApiType(config) === 'lmstudio'
+      ? 512
+      : 256;
+  return Math.max(requested, minimum);
+}
+
 const buildProviderHeaders = config => {
   const type = getApiType(config);
   const key = getApiKey(config);
@@ -495,19 +506,19 @@ export function buildCompletionRequest(config = {}, promptData = {}, signal) {
       generationConfig: {
         temperature: Number(config.temperature ?? 0.9),
         topP: Number(config.topP ?? config.top_p ?? 0.95),
-        maxOutputTokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
+      maxOutputTokens: getEffectiveMaxTokens(config),
       },
     }
     : type === 'anthropic'
     ? {
       ...common,
-      max_tokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
+      max_tokens: getEffectiveMaxTokens(config),
       ...(system ? { system } : {}),
       messages: historyMessages,
     }
     : {
       ...common,
-      max_tokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
+      max_tokens: getEffectiveMaxTokens(config),
       stream: shouldUseStreaming(config),
       ...(type === 'lmstudio' ? { reasoning: false } : {}),
       messages,
@@ -728,7 +739,7 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     provider: getApiType(config),
     url: request.url,
     model: String(config.model ?? '').trim(),
-    maxTokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
+    maxTokens: getEffectiveMaxTokens(config),
     authMode: getAuthMode(config),
     stream: shouldUseStreaming(config),
     messageCount: Array.isArray(promptData.messages) ? promptData.messages.length : 0,
@@ -739,7 +750,8 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     let payload = await fetchJson(fetchImpl, request.url, request.init, { stream: streaming });
     debug?.({ phase: 'response', attempt: 1, ...debugBase, payload: summarizeProviderPayload(payload, config.type) });
     let attempt = 1;
-    const retryBudgets = getApiType(config) === 'lmstudio' ? [512, 1024] : [256, 512, 1024];
+  const retryBudgets = getApiType(config) === 'lmstudio' ? [512, 1024] : [256, 512, 1024];
+  const effectiveMaxTokens = getEffectiveMaxTokens(config);
     for (const retryMaxTokens of retryBudgets) {
       const choice = payload?.choices?.[0];
       const message = choice?.message;
@@ -749,10 +761,10 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
       const truncated = choice?.finish_reason === 'length'
         || payload?.candidates?.[0]?.finishReason === 'MAX_TOKENS';
       if (!reasoningOnly && !truncated) break;
-      if (retryMaxTokens <= Number(config.maxTokens ?? config.max_tokens ?? 80)) continue;
+      if (retryMaxTokens <= effectiveMaxTokens) continue;
       const retryConfig = {
         ...config,
-        maxTokens: Math.max(Number(config.maxTokens ?? config.max_tokens ?? 80), retryMaxTokens),
+        maxTokens: Math.max(effectiveMaxTokens, retryMaxTokens),
       };
       const retryRequest = buildCompletionRequest(retryConfig, promptData, controller?.signal ?? externalSignal);
       attempt += 1;
