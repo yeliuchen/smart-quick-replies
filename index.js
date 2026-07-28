@@ -1015,13 +1015,22 @@ export function createRequestCoordinator(AbortControllerImpl = globalThis.AbortC
       return active?.id === id;
     },
     cancel() {
+      const cancelled = active;
       if (active?.controller) active.controller.abort();
       active = null;
+      return cancelled;
     },
     finish(id) {
       if (active?.id === id) active = null;
     },
   };
+}
+
+export function resetPanelAfterCancellation(panel, cancelledRequest, hide = false) {
+  if (!cancelledRequest) return false;
+  panel?.setLoading?.(false);
+  if (hide) panel?.hide?.();
+  return true;
 }
 
 export function createDragScheduler(requestFrame, onFrame = null) {
@@ -1320,6 +1329,7 @@ export function bootstrap(context = {}) {
     },
     onRefresh: () => requestSuggestions(lastRequestInterrupted),
   });
+  const cancelSuggestionRequest = hide => resetPanelAfterCancellation(panel, coordinator.cancel(), hide);
   const cleanups = [];
   let lastRequestInterrupted = false;
   let stoppedTimer = null;
@@ -1501,7 +1511,7 @@ export function bootstrap(context = {}) {
     generationId += 1;
     handledStopId = -1;
     characterRenderedGenerationId = -1;
-    coordinator.cancel();
+    cancelSuggestionRequest(true);
   });
   eventHandler('CHARACTER_MESSAGE_RENDERED', () => {
     characterRenderedGenerationId = generationId;
@@ -1542,7 +1552,7 @@ export function bootstrap(context = {}) {
       scheduleAutoSuggestion(false);
     }
   });
-  for (const name of ['CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_CREATED']) eventHandler(name, () => { coordinator.cancel(); panel.hide(); });
+  for (const name of ['CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_CREATED']) eventHandler(name, () => cancelSuggestionRequest(true));
   eventHandler('MESSAGE_SENT', () => { if (getSettings().dismissAfterSend) panel.hide(); });
 
   const textarea = documentImpl.querySelector('#send_textarea');
@@ -1567,7 +1577,7 @@ export function bootstrap(context = {}) {
   cleanups.push(() => documentImpl.removeEventListener('click', outsideClick, true));
 
   return () => {
-    coordinator.cancel();
+    cancelSuggestionRequest(false);
     if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
     cleanups.splice(0).forEach(cleanup => cleanup());
   };

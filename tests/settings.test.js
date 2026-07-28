@@ -10,6 +10,7 @@ import {
   getDefaultPanelPosition,
   createPositionStore,
   createRequestCoordinator,
+  resetPanelAfterCancellation,
   createDragScheduler,
   getApiKeyStorageMode,
   readApiKey,
@@ -207,6 +208,18 @@ test('request coordinator reuses an active request instead of duplicating it', (
   assert.equal(coordinator.isCurrent(first.id), true);
   coordinator.cancel();
   assert.equal(coordinator.isCurrent(first.id), false);
+});
+
+test('cancelled suggestion requests clear the loading panel state', () => {
+  const calls = [];
+  const panel = {
+    setLoading: value => calls.push(['loading', value]),
+    hide: () => calls.push(['hide']),
+  };
+  assert.equal(resetPanelAfterCancellation(panel, { id: 1 }, true), true);
+  assert.deepEqual(calls, [['loading', false], ['hide']]);
+  assert.equal(resetPanelAfterCancellation(panel, null, true), false);
+  assert.deepEqual(calls, [['loading', false], ['hide']]);
 });
 
 test('API keys prefer a Secrets adapter and never enter extension settings', async () => {
