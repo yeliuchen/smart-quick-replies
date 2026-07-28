@@ -463,6 +463,7 @@ export function buildCompletionRequest(config = {}, promptData = {}, signal) {
       ...common,
       max_tokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
       stream: false,
+      ...(type === 'lmstudio' ? { reasoning: false } : {}),
       messages,
     };
   const headers = buildProviderHeaders(config);
@@ -493,7 +494,7 @@ export function buildModelsRequest(config = {}) {
   };
 }
 
-export function parseProviderResponse(payload, apiType = 'openai', options = {}) {
+export function parseProviderResponse(payload, apiType = 'openai') {
   const type = getApiType({ type: apiType });
   if (typeof payload === 'string') return payload;
   if (type === 'anthropic') {
@@ -503,13 +504,7 @@ export function parseProviderResponse(payload, apiType = 'openai', options = {})
     if (textBlock) return textBlock.text;
   }
   const choice = payload?.choices?.[0];
-  if (typeof choice?.message?.content === 'string') {
-    const content = choice.message.content;
-    const reasoning = options.includeReasoning
-      ? String(choice.message.reasoning_content ?? choice.message.reasoning ?? '').trim()
-      : '';
-    return [content, reasoning].filter(Boolean).join('\n\n');
-  }
+  if (typeof choice?.message?.content === 'string') return choice.message.content;
   if (typeof choice?.text === 'string') return choice.text;
   if (typeof payload?.output_text === 'string') return payload.output_text;
   throw new Error('API response did not contain text');
@@ -578,7 +573,7 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
       const retryRequest = buildCompletionRequest(retryConfig, promptData, controller?.signal ?? externalSignal);
       payload = await fetchJson(fetchImpl, retryRequest.url, retryRequest.init);
     }
-    return parseProviderResponse(payload, config.type, { includeReasoning: Boolean(promptData.generationInstruction) });
+    return parseProviderResponse(payload, config.type);
   } catch (error) {
     if (timedOut) throw createAbortError('API request timed out');
     if (error?.name === 'AbortError') throw createAbortError('API request was cancelled');

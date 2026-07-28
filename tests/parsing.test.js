@@ -56,11 +56,11 @@ test('candidate parser prefers final Reply lines over reasoning-only option desc
   assert.deepEqual(parseCandidateArray(text), ['Reply one', 'Reply two', 'Reply three', 'Reply four']);
 });
 
-test('LM Studio suggestion response can include reasoning content for parsing', () => {
+test('provider response ignores reasoning content and uses standard content only', () => {
   const text = parseProviderResponse({
     choices: [{ message: { content: '```json\n[', reasoning_content: '* Reply 1: "one"\n* Reply 2: "two"\n* Reply 3: "three"\n* Reply 4: "four"' } }],
-  }, 'lmstudio', { includeReasoning: true });
-  assert.match(text, /Reply 4/);
+  }, 'lmstudio');
+  assert.equal(text, '```json\n[');
 });
 
 test('candidate parser accepts numbered replies recovered from reasoning content', () => {

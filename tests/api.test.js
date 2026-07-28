@@ -37,6 +37,11 @@ test('LM Studio model discovery includes the API v1 fallback', () => {
   assert.deepEqual(request.fallbackUrls, ['http://localhost:1234/api/v1/models']);
 });
 
+test('LM Studio completion explicitly disables reasoning output', () => {
+  const request = buildCompletionRequest({ type: 'lmstudio', url: 'http://localhost:1234/v1', model: 'gemma', maxTokens: 80 }, { system: 'system', messages: [{ role: 'user', content: 'hi' }] });
+  assert.equal(JSON.parse(request.init.body).reasoning, false);
+});
+
 test('LM Studio discovery falls back when the OpenAI endpoint returns an empty list', async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {
