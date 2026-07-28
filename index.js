@@ -185,19 +185,30 @@ const extractJsonArray = text => {
   return source;
 };
 
-export function parseCandidateArray(text) {
-  let parsed;
-  try {
-    parsed = JSON.parse(extractJsonArray(text));
-  } catch {
-    throw new InvalidCandidateError();
-  }
-  if (!Array.isArray(parsed) || parsed.length !== 4 || parsed.some(item => typeof item !== 'string' || !item.trim())) {
-    throw new InvalidCandidateError();
-  }
+const extractMarkdownOptions = text => {
+  const source = String(text ?? '');
+  const matches = [...source.matchAll(/(?:^|\r?\n)\s*(?:[-*]\s*)?(?:\*\*)?Option\s*([1-4])(?:\*\*)?\s*[:：]\s*([\s\S]*?)(?=\r?\n\s*(?:[-*]\s*)?(?:\*\*)?Option\s*[1-4](?:\*\*)?\s*[:：]|$)/gi)];
+  const options = new Map(matches.map(match => [Number(match[1]), match[2].replace(/^\*+\s*/, '').trim()]));
+  if (options.size !== 4 || [...options.values()].some(value => !value)) return null;
+  return [1, 2, 3, 4].map(index => options.get(index));
+};
+
+const validateCandidates = parsed => {
+  if (!Array.isArray(parsed) || parsed.length !== 4 || parsed.some(item => typeof item !== 'string' || !item.trim())) return null;
   const candidates = parsed.map(item => item.trim());
-  if (new Set(candidates).size !== 4) throw new InvalidCandidateError();
-  return candidates;
+  return new Set(candidates).size === 4 ? candidates : null;
+};
+
+export function parseCandidateArray(text) {
+  try {
+    const candidates = validateCandidates(JSON.parse(extractJsonArray(text)));
+    if (candidates) return candidates;
+  } catch {
+    // Fall through to the Markdown option parser for reasoning-model output.
+  }
+  const markdownOptions = validateCandidates(extractMarkdownOptions(text));
+  if (markdownOptions) return markdownOptions;
+  throw new InvalidCandidateError();
 }
 
 export function mapChatMessage(message = {}, names = {}) {

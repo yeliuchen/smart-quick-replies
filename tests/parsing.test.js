@@ -25,3 +25,19 @@ test('candidate parser removes code fences and rejects duplicates or wrong count
   assert.throws(() => parseCandidateArray('["a","a","b","c"]'), /four distinct/);
   assert.throws(() => parseCandidateArray('["a","b"]'), /four distinct/);
 });
+
+test('candidate parser accepts four markdown Option lines from reasoning models', () => {
+  const text = [
+    '分析：需要给出四个候选。',
+    '* **Option 1:** 你好，很高兴见到你。',
+    '* **Option 2:** 你现在感觉好些了吗？',
+    '* **Option 3:** 我在这里陪着你。',
+    '* **Option 4:** 我们慢慢聊吧。',
+  ].join('\n');
+  assert.deepEqual(parseCandidateArray(text), [
+    '你好，很高兴见到你。',
+    '你现在感觉好些了吗？',
+    '我在这里陪着你。',
+    '我们慢慢聊吧。',
+  ]);
+});
