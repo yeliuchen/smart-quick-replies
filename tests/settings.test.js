@@ -20,6 +20,8 @@ import {
   shouldSuggestOnCharacterRendered,
   decideAutoSuggestionTrigger,
   shouldScheduleAfterMessageReceived,
+  getLatestCharacterMessageKey,
+  shouldDismissAfterMessageSent,
   shouldShowRequestError,
   getRequestErrorMessage,
 } from '../index.js';
@@ -30,13 +32,12 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.equal(DEFAULT_SETTINGS.compression.enabled, true);
   assert.equal(DEFAULT_SETTINGS.compression.threshold, 3000);
   assert.equal(DEFAULT_SETTINGS.api.maxTokens, 2048);
+  assert.equal(DEFAULT_SETTINGS.api.timeoutMs, 120000);
   assert.equal(DEFAULT_SETTINGS.api.authMode, 'bearer');
   assert.match(DEFAULT_SYSTEM_PROMPT, /You generate reply suggestions for the USER/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /You are NOT \{\{char\}\}/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /exactly 4 distinct/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /user style examples/);
-  assert.match(DEFAULT_SYSTEM_PROMPT, /scene stagnation/);
-  assert.match(DEFAULT_SYSTEM_PROMPT, /6 consecutive user-character exchanges/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /30 Chinese characters/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /never exceed 40 Chinese characters/);
 });
@@ -72,6 +73,12 @@ test('migrateSettings raises the old low token default for suggestion generation
 test('settings expose 2048 as the default max token value', () => {
   const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
   assert.match(html, /id="sqr-max-tokens"[^>]*max="4096"[^>]*value="2048"/);
+});
+
+test('settings expose a 120 second default request timeout', () => {
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.match(html, /id="sqr-timeout"[^>]*max="180"[^>]*value="120"/);
+  assert.equal(migrateSettings({ version: 4, api: { timeoutMs: 30000 } }).api.timeoutMs, 120000);
 });
 
 test('migrateSettings upgrades the original default prompt to user-perspective rules', () => {
@@ -228,6 +235,7 @@ test('progression candidates style the Lucide marker without a textual arrow', (
   assert.match(progressionRule, /color:\s*var\(--SmartThemeQuoteColor, #75b7ff\)/);
   assert.match(progressionRule, /display:\s*inline-block/);
   assert.doesNotMatch(css, /content:\s*'↗'/);
+  assert.doesNotMatch(css, /\.sqr-candidate\.[\w-]+::before/);
 });
 
 test('drag scheduler keeps only the newest pending point until the frame runs', () => {
@@ -270,6 +278,27 @@ test('cancelled suggestion requests clear the loading panel state', () => {
   assert.equal(resetPanelAfterCancellation(panel, { id: 1 }, true), true);
   assert.deepEqual(calls, [['loading', false], ['hide']]);
   assert.equal(resetPanelAfterCancellation(panel, null, true), false);
+  assert.deepEqual(calls, [['loading', false], ['hide']]);
+});
+
+test('generation cancellation keeps the completed suggestion panel visible', () => {
+  const calls = [];
+  const panel = {
+    setLoading: value => calls.push(['loading', value]),
+    hide: () => calls.push(['hide']),
+  };
+  assert.equal(resetPanelAfterCancellation(panel, { id: 1 }, false), true);
+  assert.deepEqual(calls, [['loading', false]]);
+});
+
+test('cancellation hides the panel when no candidates were completed', () => {
+  const calls = [];
+  const panel = {
+    setLoading: value => calls.push(['loading', value]),
+    hide: () => calls.push(['hide']),
+    hasCandidates: () => false,
+  };
+  assert.equal(resetPanelAfterCancellation(panel, { id: 1 }, false), true);
   assert.deepEqual(calls, [['loading', false], ['hide']]);
 });
 
@@ -346,6 +375,22 @@ test('message receipt can provide a completed-character auto-trigger fallback', 
   assert.equal(shouldScheduleAfterMessageReceived({ triggerMode: 'auto' }, { generationActive: false, hasCharacterMessage: true }), true);
   assert.equal(shouldScheduleAfterMessageReceived({ triggerMode: 'auto' }, { generationActive: true, hasCharacterMessage: true }), false);
   assert.equal(shouldScheduleAfterMessageReceived({ triggerMode: 'manual' }, { generationActive: false, hasCharacterMessage: true }), false);
+});
+
+test('automatic suggestion deduplication keys the latest character message', () => {
+  const chat = [
+    { is_user: true, mes: 'Hi' },
+    { is_user: false, mes: 'Hello' },
+  ];
+  assert.equal(getLatestCharacterMessageKey(chat), '1:Hello');
+  assert.equal(getLatestCharacterMessageKey([...chat, { is_user: true, mes: 'Next' }]), '');
+  assert.notEqual(getLatestCharacterMessageKey([...chat, { is_user: false, mes: 'Hello again' }]), getLatestCharacterMessageKey(chat));
+});
+
+test('message sent dismissal ignores events while the latest message is from the character', () => {
+  assert.equal(shouldDismissAfterMessageSent({ dismissAfterSend: true }, { latestMessageIsUser: true }), true);
+  assert.equal(shouldDismissAfterMessageSent({ dismissAfterSend: true }, { latestMessageIsUser: false }), false);
+  assert.equal(shouldDismissAfterMessageSent({ dismissAfterSend: false }, { latestMessageIsUser: true }), false);
 });
 
 test('intentional aborts do not become visible request errors', () => {

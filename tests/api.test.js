@@ -75,6 +75,11 @@ test('OpenAI-compatible responses accept text-part content arrays', () => {
   assert.equal(parseProviderResponse({ choices: [{ message: { content: [{ type: 'text', text: '["a","b","c","d"]' }] } }] }, 'openai'), '["a","b","c","d"]');
 });
 
+test('OpenAI-compatible responses accept string content chunks and a single text part', () => {
+  assert.equal(parseProviderResponse({ choices: [{ message: { content: ['["a",', '"b","c","d"]'] } }] }, 'openai'), '["a","b","c","d"]');
+  assert.equal(parseProviderResponse({ choices: [{ message: { content: { type: 'text', text: '["a","b","c","d"]' } } }] }, 'openai'), '["a","b","c","d"]');
+});
+
 test('runtime API config prefers the current settings input key', () => {
   const config = resolveApiRequestConfig({ api: { type: 'google', autoDetect: true, url: 'https://gcli.ggchan.dev', key: '' } }, {
     inputApiKey: 'current-key',
@@ -141,6 +146,7 @@ test('LM Studio suggestion requests include a strict four-item JSON schema', () 
   assert.equal(format.json_schema.strict, true);
   assert.equal(format.json_schema.schema.minItems, 4);
   assert.equal(format.json_schema.schema.maxItems, 4);
+  assert.equal(format.json_schema.schema.items.type, 'string');
 });
 
 test('LM Studio discovery falls back when the OpenAI endpoint returns an empty list', async () => {
@@ -202,7 +208,7 @@ test('OpenAI-compatible requests retry truncated JSON with larger token budgets'
     return {
       ok: true,
       status: 200,
-      json: async () => ({ choices: [{ message: { content: '[{"reply":"a","progression":false},{"reply":"b","progression":false},{"reply":"c","progression":false},{"reply":"d","progression":false}]' }, finish_reason: 'stop' }] }),
+      json: async () => ({ choices: [{ message: { content: '[{"reply":"a"},{"reply":"b"},{"reply":"c"},{"reply":"d"}]' }, finish_reason: 'stop' }] }),
     };
   };
   const text = await requestCompletion(
@@ -214,14 +220,35 @@ test('OpenAI-compatible requests retry truncated JSON with larger token budgets'
   assert.deepEqual(requests, [256, 512, 1024]);
 });
 
+test('suggestion requests retry malformed JSON even when the gateway says stop', async () => {
+  const requests = [];
+  const fetchImpl = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    requests.push(body.max_tokens);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => requests.length === 1
+        ? { choices: [{ message: { content: '["a","b","c",' }, finish_reason: 'stop' }] }
+        : { choices: [{ message: { content: '["a","b","c","d"]' }, finish_reason: 'stop' }] },
+    };
+  };
+  const text = await requestCompletion(
+    { type: 'openai', url: 'https://gateway.example/v1', key: 'secret', model: 'gemini', maxTokens: 1024 },
+    { responseFormat: 'suggestions', messages: [] },
+    { fetch: fetchImpl },
+  );
+  assert.equal(text, '["a","b","c","d"]');
+  assert.deepEqual(requests, [1024, 2048]);
+});
+
 test('fake-stream models request streaming and aggregate SSE content', async () => {
   assert.equal(shouldUseStreaming({ model: '假流式-gemini-3-flash-preview' }), true);
   const encoder = new TextEncoder();
   const chunks = [
     '[{"reply":"a",',
-    '"progression":false},{"reply":"b",',
-    '"progression":false},{"reply":"c",',
-    '"progression":false},{"reply":"d","progression":false}]',
+    '"reply":"b"},{"reply":"c",',
+    '"reply":"d"}]',
   ].map((content, index, values) => `data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: index === values.length - 1 ? 'stop' : null }] })}\n\n`).concat('data: [DONE]\n\n');
   const text = await requestCompletion({ type: 'openai', url: 'https://gateway.example/v1', key: 'secret', model: '假流式-gemini-3-flash-preview', maxTokens: 256 }, { messages: [] }, {
     fetch: async (_url, init) => {
@@ -255,7 +282,7 @@ test('streaming retries a truncated response beyond the 1024-token floor', async
       ok: true,
       status: 200,
       body: makeStream(
-        requests.length === 1 ? '[{"reply":"a","progression":false},{"reply":"b","progression":false},{"reply":"c","progression":false},{"reply":"' : '[{"reply":"a","progression":false},{"reply":"b","progression":false},{"reply":"c","progression":false},{"reply":"d","progression":false}]',
+        requests.length === 1 ? '[{"reply":"a"},{"reply":"b"},{"reply":"c"},{"reply":"' : '[{"reply":"a"},{"reply":"b"},{"reply":"c"},{"reply":"d"}]',
         requests.length === 1 ? 'length' : 'stop',
       ),
     };

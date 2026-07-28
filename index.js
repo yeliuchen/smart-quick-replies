@@ -12,15 +12,13 @@ Rules:
 - Write from {{user}}'s first-person perspective and address {{char}}.
 - Match the user's demonstrated wording, sentence length, punctuation, directness, and emotional tone from the user style examples.
 - Use the examples only as a style reference; do not copy their subject matter or sentences.
-- Check for scene stagnation: if roughly 6 consecutive user-character exchanges repeat the same situation, goal, conflict, or emotional beat without meaningful change, include 1 or 2 suggestions that gently advance the scene by one plausible small beat.
-- A scene advance may introduce a concrete user action, a new question, a nearby task, or a modest change in focus. Do not abruptly end the scene, skip major events, decide the character's reaction, or take control away from the user.
 - Never continue {{char}}'s dialogue, thoughts, actions, narration, or roleplay.
 - Never write stage directions, third-person narration, labels, explanations, or analysis.
-- Return exactly 4 JSON objects with this shape: {"reply":"message text","progression":false}. Set progression to true only for a gentle, small scene-advancing suggestion; otherwise set it to false.
+- Return exactly 4 distinct JSON strings.
 - Return message text only: do not wrap a reply in quotation marks and do not append labels such as "Acting", "Draft", "Option", or style explanations.
 - Treat the latest character message as the message the user needs to answer.
 
-Reply ONLY with a JSON array of exactly 4 objects, like: [{"reply":"reply1","progression":false},{"reply":"reply2","progression":true},{"reply":"reply3","progression":false},{"reply":"reply4","progression":false}]`;
+Reply ONLY with a JSON array of exactly 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]`;
 
 export const DEFAULT_SETTINGS = Object.freeze({
   version: 4,
@@ -41,7 +39,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     temperature: 0.9,
     maxTokens: 2048,
     topP: 0.95,
-    timeoutMs: 30000,
+    timeoutMs: 120000,
   },
   compression: {
     enabled: true,
@@ -99,13 +97,13 @@ export function migrateSettings(saved = {}) {
     || typeof source.systemPrompt === 'string'
       && source.systemPrompt.includes('user style examples')
       && (!source.systemPrompt.includes('do not wrap a reply')
-        || !source.systemPrompt.includes('scene stagnation')
-        || !source.systemPrompt.includes('Return exactly 4 JSON objects')
+        || !source.systemPrompt.includes('Return exactly 4 distinct JSON strings')
         || !source.systemPrompt.includes('30 Chinese characters'));
   if (source.systemPrompt === LEGACY_SYSTEM_PROMPT || usesPreviousDefault) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
   if (isPlainObject(source.api) && Number(source.api.maxTokens) > 0 && Number(source.api.maxTokens) <= 128) source.api.maxTokens = 2048;
   if (isPlainObject(source.api) && Number(source.version ?? 0) < 3 && Number(source.api.maxTokens) === 512) source.api.maxTokens = 2048;
-  source.version = 4;
+  if (isPlainObject(source.api) && Number(source.version ?? 0) < 5 && Number(source.api.timeoutMs) === 30000) source.api.timeoutMs = 120000;
+  source.version = 5;
   return source;
 }
 
@@ -255,6 +253,38 @@ const extractNumberedReplies = text => {
   return [1, 2, 3, 4].map(index => replies.get(index));
 };
 
+const extractCompleteStringItems = text => {
+  const source = removeCodeFences(text);
+  const start = source.indexOf('[');
+  if (start < 0) return null;
+  const items = [];
+  let index = start + 1;
+  while (index < source.length && items.length < 4) {
+    while (/\s|,/.test(source[index] ?? '')) index += 1;
+    if (source[index] !== '"') return null;
+    const itemStart = index;
+    index += 1;
+    let escaped = false;
+    while (index < source.length) {
+      const character = source[index];
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') {
+        index += 1;
+        break;
+      }
+      index += 1;
+    }
+    if (source[index - 1] !== '"') return null;
+    try {
+      items.push(JSON.parse(source.slice(itemStart, index)));
+    } catch {
+      return null;
+    }
+  }
+  return items.length === 4 ? items : null;
+};
+
 const normalizeCandidateText = value => String(value ?? '')
   .trim()
   .replace(/^\s*["“「『]+/, '')
@@ -263,35 +293,16 @@ const normalizeCandidateText = value => String(value ?? '')
   .trim();
 
 const validateCandidates = parsed => {
-  if (!Array.isArray(parsed) || parsed.length !== 4 || parsed.some(item => typeof item !== 'string' || !item.trim())) return null;
-  const candidates = parsed.map(normalizeCandidateText);
+  if (!Array.isArray(parsed) || parsed.length !== 4) return null;
+  const candidates = parsed.map(item => normalizeCandidateText(
+    typeof item === 'string' ? item : item?.reply ?? item?.text ?? item?.content ?? '',
+  ));
   if (candidates.some(candidate => !candidate)) return null;
   return new Set(candidates).size === 4 ? candidates : null;
 };
 
-const validateCandidateResults = parsed => {
-  if (!Array.isArray(parsed) || parsed.length !== 4) return null;
-  const results = parsed.map(item => {
-    if (typeof item === 'string') return { text: normalizeCandidateText(item), progression: false };
-    if (!item || typeof item !== 'object') return null;
-    return {
-      text: normalizeCandidateText(item.reply ?? item.text ?? item.content ?? ''),
-      progression: Boolean(item.progression ?? item.sceneProgression ?? item.advanceScene),
-    };
-  });
-  if (results.some(result => !result?.text) || new Set(results.map(result => result.text)).size !== 4) return null;
-  return results;
-};
-
 export function parseCandidateResults(text) {
-  try {
-    const results = validateCandidateResults(JSON.parse(extractJsonArray(text)));
-    if (results) return results;
-  } catch {
-    // Fall through to legacy reply formats.
-  }
-  const candidates = parseCandidateArray(text);
-  return candidates.map(candidate => ({ text: candidate, progression: false }));
+  return parseCandidateArray(text);
 }
 
 export function parseCandidateArray(text) {
@@ -301,6 +312,8 @@ export function parseCandidateArray(text) {
   } catch {
     // Fall through to the Markdown option parser for reasoning-model output.
   }
+  const recoveredStrings = validateCandidates(extractCompleteStringItems(text));
+  if (recoveredStrings) return recoveredStrings;
   const replyLines = validateCandidates(extractReplyLines(text));
   if (replyLines) return replyLines;
   const numberedReplies = validateCandidates(extractNumberedReplies(text));
@@ -436,7 +449,7 @@ export function buildPromptMessages(systemPrompt, history = { messages: [] }, va
     system: expanded,
     messages: hasHistoryPlaceholder ? [] : historyMessages.filter(message => message?.role !== 'system'),
     responseFormat: 'suggestions',
-    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Keep each reply to one short sentence, preferably under 30 Chinese characters or 15 words, and never over 40 Chinese characters or 20 words. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. If the recent scene has stagnated for about 6 exchanges, make 1 or 2 options gently advance it by one small plausible beat without forcing a resolution. Output ONLY a JSON array of exactly 4 objects with reply and progression fields.',
+    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Keep each reply to one short sentence, preferably under 30 Chinese characters or 15 words, and never over 40 Chinese characters or 20 words. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. Output ONLY a JSON array of exactly 4 distinct strings.',
   };
 }
 
@@ -537,15 +550,7 @@ export function buildCompletionRequest(config = {}, promptData = {}, signal) {
               type: 'array',
               minItems: 4,
               maxItems: 4,
-              items: {
-                type: 'object',
-                additionalProperties: false,
-                required: ['reply', 'progression'],
-                properties: {
-                  reply: { type: 'string' },
-                  progression: { type: 'boolean' },
-                },
-              },
+              items: { type: 'string', minLength: 1 },
             },
           },
         },
@@ -580,31 +585,30 @@ export function buildModelsRequest(config = {}) {
   };
 }
 
+const textFromParts = value => {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value.map(part => typeof part === 'string' ? part : part?.text ?? '').filter(Boolean).join('');
+  }
+  return typeof value?.text === 'string' ? value.text : '';
+};
+
 export function parseProviderResponse(payload, apiType = 'openai') {
   const type = getApiType({ type: apiType });
   if (typeof payload === 'string') return payload;
   if (type === 'google') {
     const parts = payload?.candidates?.[0]?.content?.parts;
-    const text = Array.isArray(parts)
-      ? parts.filter(part => typeof part?.text === 'string').map(part => part.text).join('')
-      : '';
+    const text = textFromParts(parts);
     if (text) return text;
   }
   if (type === 'anthropic') {
-    const textBlock = Array.isArray(payload?.content)
-      ? payload.content.find(block => block?.type === 'text' && typeof block.text === 'string')
-      : null;
-    if (textBlock) return textBlock.text;
+    const text = textFromParts(payload?.content);
+    if (text) return text;
   }
   const choice = payload?.choices?.[0];
   if (typeof choice?.message?.content === 'string') return choice.message.content;
-  if (Array.isArray(choice?.message?.content)) {
-    const text = choice.message.content
-      .filter(part => typeof part?.text === 'string')
-      .map(part => part.text)
-      .join('');
-    if (text) return text;
-  }
+  const messageText = textFromParts(choice?.message?.content);
+  if (messageText) return messageText;
   if (typeof choice?.text === 'string') return choice.text;
   if (typeof payload?.output_text === 'string') return payload.output_text;
   throw new Error('API response did not contain text');
@@ -668,10 +672,8 @@ export function summarizeProviderPayload(payload, apiType = 'openai') {
   const choice = payload?.choices?.[0];
   const message = choice?.message;
   const standardContent = type === 'google'
-    ? payload?.candidates?.[0]?.content?.parts?.filter(part => typeof part?.text === 'string').map(part => part.text).join('')
-    : Array.isArray(message?.content)
-      ? message.content.filter(part => typeof part?.text === 'string').map(part => part.text).join('')
-      : message?.content ?? choice?.text ?? payload?.output_text ?? '';
+    ? textFromParts(payload?.candidates?.[0]?.content?.parts)
+    : textFromParts(message?.content) || choice?.text || payload?.output_text || '';
   const reasoning = type === 'google'
     ? ''
     : message?.reasoning_content ?? message?.reasoning ?? '';
@@ -779,17 +781,25 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     let payload = await fetchJson(fetchImpl, request.url, request.init, { stream: streaming });
     debug?.({ phase: 'response', attempt: 1, ...debugBase, payload: summarizeProviderPayload(payload, config.type) });
     let attempt = 1;
-  const retryBudgets = getApiType(config) === 'lmstudio' ? [512, 1024, 2048] : [256, 512, 1024, 2048, 4096];
+  const retryBudgets = getApiType(config) === 'lmstudio' ? [512, 1024, 2048, 4096] : [256, 512, 1024, 2048, 4096];
   const effectiveMaxTokens = getEffectiveMaxTokens(config);
     for (const retryMaxTokens of retryBudgets) {
       const choice = payload?.choices?.[0];
       const message = choice?.message;
       const reasoningOnly = getApiType(config) === 'lmstudio'
         && message
-        && !String(message.content ?? '').trim();
+        && !textFromParts(message.content).trim();
       const truncated = choice?.finish_reason === 'length'
         || payload?.candidates?.[0]?.finishReason === 'MAX_TOKENS';
-      if (!reasoningOnly && !truncated) break;
+      let invalidSuggestion = false;
+      if (promptData.responseFormat === 'suggestions' && !reasoningOnly && !truncated) {
+        try {
+          parseCandidateArray(parseProviderResponse(payload, config.type));
+        } catch {
+          invalidSuggestion = true;
+        }
+      }
+      if (!reasoningOnly && !truncated && !invalidSuggestion) break;
       if (retryMaxTokens <= effectiveMaxTokens) continue;
       const retryConfig = {
         ...config,
@@ -802,7 +812,7 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     }
     const type = getApiType(config);
     const message = payload?.choices?.[0]?.message;
-    if (type === 'lmstudio' && message && !String(message.content ?? '').trim() && String(message.reasoning_content ?? '').trim()) {
+    if (type === 'lmstudio' && message && !textFromParts(message.content).trim() && String(message.reasoning_content ?? '').trim()) {
       throw new ProviderResponseError('LM Studio 只返回了 reasoning 内容，没有标准 content；请关闭模型思考/深度推理，或提高 max_tokens 后重试。');
     }
     return parseProviderResponse(payload, config.type);
@@ -843,11 +853,16 @@ export function getInputElement(root, settingPath) {
 
 const getNestedValue = (source, path) => String(path).split('.').reduce((value, key) => value?.[key], source);
 
+const getSettingScale = element => {
+  const scale = Number(element?.dataset?.sqrScale ?? 1);
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
+};
+
 const parseSettingValue = element => {
   if (element.type === 'checkbox') return Boolean(element.checked);
   if (element.type === 'number' || element.type === 'range') {
     const value = Number(element.value);
-    return Number.isFinite(value) ? value : 0;
+    return Number.isFinite(value) ? value * getSettingScale(element) : 0;
   }
   return element.value;
 };
@@ -875,7 +890,11 @@ export function renderSettings(container, settings = {}, handlers = {}) {
     const path = element.dataset.sqrSetting;
     const value = getNestedValue(settings, path);
     if (element.type === 'checkbox') element.checked = Boolean(value);
-    else if (value !== undefined && value !== null) element.value = String(value);
+    else if (value !== undefined && value !== null) {
+      element.value = element.type === 'number' || element.type === 'range'
+        ? String(Number(value) / getSettingScale(element))
+        : String(value);
+    }
     updateOutput(path);
     const eventName = element.type === 'range' ? 'input' : 'change';
     listen(element, eventName, () => {
@@ -1032,7 +1051,8 @@ export function createRequestCoordinator(AbortControllerImpl = globalThis.AbortC
 export function resetPanelAfterCancellation(panel, cancelledRequest, hide = false) {
   if (!cancelledRequest) return false;
   panel?.setLoading?.(false);
-  if (hide) panel?.hide?.();
+  const hasCandidates = typeof panel?.hasCandidates === 'function' ? panel.hasCandidates() : true;
+  if (hide || !hasCandidates) panel?.hide?.();
   return true;
 }
 
@@ -1136,6 +1156,7 @@ export function createPanel(documentImpl, callbacks = {}) {
   };
   let position = null;
   let dragState = null;
+  let candidateCount = 0;
   const windowImpl = documentImpl.defaultView ?? globalThis.window;
   const requestFrame = typeof windowImpl?.requestAnimationFrame === 'function'
     ? windowImpl.requestAnimationFrame.bind(windowImpl)
@@ -1177,6 +1198,7 @@ export function createPanel(documentImpl, callbacks = {}) {
     buttons.forEach((button, index) => {
       renderCandidateButton(button, list[index], documentImpl);
     });
+    candidateCount = buttons.filter(button => !button.hidden).length;
     status.hidden = true;
     status.className = 'sqr-panel-status';
     status.textContent = '';
@@ -1272,6 +1294,7 @@ export function createPanel(documentImpl, callbacks = {}) {
     show,
     hide,
     setCandidates,
+    hasCandidates: () => candidateCount > 0,
     setLoading,
     setError,
     setPosition,
@@ -1423,6 +1446,19 @@ export function shouldScheduleAfterMessageReceived(settings = {}, state = {}) {
   return settings.triggerMode === 'auto' && !state.generationActive && Boolean(state.hasCharacterMessage);
 }
 
+export function getLatestCharacterMessageKey(chat = []) {
+  const messages = Array.isArray(chat) ? chat : [];
+  const index = messages.length - 1;
+  const message = messages[index];
+  if (!message || message.is_user || message.isUser || message.role === 'user' || message.is_system || message.role === 'system') return '';
+  const content = String(message.mes ?? message.content ?? '').trim();
+  return content ? `${index}:${content}` : '';
+}
+
+export function shouldDismissAfterMessageSent(settings = {}, state = {}) {
+  return Boolean(settings.dismissAfterSend) && state.latestMessageIsUser !== false;
+}
+
 export function shouldShowRequestError(error = {}) {
   return !(error?.name === 'AbortError' && error?.message !== 'API request timed out');
 }
@@ -1490,10 +1526,19 @@ export function bootstrap(context = {}) {
     setTimeout: context.setTimeout ?? globalThis.setTimeout,
     clearTimeout: context.clearTimeout ?? globalThis.clearTimeout,
   });
-  const cancelSuggestionRequest = hide => resetPanelAfterCancellation(panel, coordinator.cancel(), hide);
+  const cancelSuggestionRequest = (hide, reason = 'request-cancelled') => {
+    const cancelled = coordinator.cancel();
+    const hasCandidates = typeof panel.hasCandidates === 'function' ? panel.hasCandidates() : true;
+    const shouldHide = Boolean(cancelled) && (hide || !hasCandidates);
+    const result = resetPanelAfterCancellation(panel, cancelled, hide);
+    if (shouldHide) recordDebug({ operation: 'panel', phase: 'hide', reason });
+    return result;
+  };
   const cleanups = [];
   let lastRequestInterrupted = false;
   let stoppedTimer = null;
+  let scheduledAutoSuggestionKey = '';
+  let autoSuggestionKey = '';
   let generationId = 0;
   let handledStopId = -1;
   let characterRenderedGenerationId = -1;
@@ -1509,6 +1554,11 @@ export function bootstrap(context = {}) {
     debugEntries.push({ timestamp: new Date().toISOString(), ...entry });
     if (debugEntries.length > 30) debugEntries.splice(0, debugEntries.length - 30);
     renderDebug();
+  };
+  const hidePanel = reason => {
+    if (!panel.isVisible()) return;
+    recordDebug({ operation: 'panel', phase: 'hide', reason });
+    panel.hide();
   };
   const clearDebug = () => {
     debugEntries.splice(0);
@@ -1642,10 +1692,15 @@ export function bootstrap(context = {}) {
 
   const scheduleAutoSuggestion = interrupted => {
     if (handledStopId === generationId) return;
+    const messageKey = getLatestCharacterMessageKey(getLiveContext().chat);
+    if (!messageKey || scheduledAutoSuggestionKey === messageKey || autoSuggestionKey === messageKey) return;
+    scheduledAutoSuggestionKey = messageKey;
     if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
     stoppedTimer = (context.setTimeout ?? globalThis.setTimeout)(() => {
       stoppedTimer = null;
+      scheduledAutoSuggestionKey = '';
       if (handledStopId === generationId) return;
+      autoSuggestionKey = messageKey;
       handledStopId = generationId;
       requestSuggestions(interrupted);
     }, 100);
@@ -1678,7 +1733,7 @@ export function bootstrap(context = {}) {
     generationId += 1;
     handledStopId = -1;
     characterRenderedGenerationId = -1;
-    cancelSuggestionRequest(true);
+    cancelSuggestionRequest(false, 'generation-started');
   });
   eventHandler('CHARACTER_MESSAGE_RENDERED', () => {
     characterRenderedGenerationId = generationId;
@@ -1719,32 +1774,42 @@ export function bootstrap(context = {}) {
       scheduleAutoSuggestion(false);
     }
   });
-  for (const name of ['CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_CREATED']) eventHandler(name, () => cancelSuggestionRequest(true));
-  eventHandler('MESSAGE_SENT', () => { if (getSettings().dismissAfterSend) panel.hide(); });
+  for (const name of ['CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_CREATED']) eventHandler(name, () => {
+    scheduledAutoSuggestionKey = '';
+    autoSuggestionKey = '';
+    cancelSuggestionRequest(true, name.toLowerCase());
+  });
+  eventHandler('MESSAGE_SENT', () => {
+    const last = getLiveContext().chat?.at?.(-1);
+    const latestMessageIsUser = last
+      ? Boolean(last.is_user ?? last.isUser ?? last.role === 'user')
+      : undefined;
+    if (shouldDismissAfterMessageSent(getSettings(), { latestMessageIsUser })) hidePanel('message-sent');
+  });
 
   const textarea = documentImpl.querySelector('#send_textarea');
   const hideAfterSend = event => {
-    if (event.key === 'Enter' && !event.shiftKey && getSettings().dismissAfterSend) panel.hide();
+    if (event.key === 'Enter' && !event.shiftKey && getSettings().dismissAfterSend) hidePanel('enter-send');
   };
   textarea?.addEventListener('keydown', hideAfterSend);
   cleanups.push(() => textarea?.removeEventListener('keydown', hideAfterSend));
-  const sendClick = () => { if (getSettings().dismissAfterSend) panel.hide(); };
+  const sendClick = () => { if (getSettings().dismissAfterSend) hidePanel('send-button'); };
   sendButton?.addEventListener('click', sendClick);
   cleanups.push(() => sendButton?.removeEventListener('click', sendClick));
   const keydown = event => {
-    if (event.key === 'Escape' && getSettings().escDismiss) panel.hide();
+    if (event.key === 'Escape' && getSettings().escDismiss) hidePanel('escape');
   };
   documentImpl.addEventListener('keydown', keydown);
   cleanups.push(() => documentImpl.removeEventListener('keydown', keydown));
   const outsideClick = event => {
     if (!getSettings().outsideClickDismiss || !panel.isVisible()) return;
-    if (!panel.element.contains(event.target) && event.target !== manualButton) panel.hide();
+    if (!panel.element.contains(event.target) && event.target !== manualButton) hidePanel('outside-click');
   };
   documentImpl.addEventListener('click', outsideClick, true);
   cleanups.push(() => documentImpl.removeEventListener('click', outsideClick, true));
 
   return () => {
-    cancelSuggestionRequest(false);
+    cancelSuggestionRequest(false, 'extension-cleanup');
     if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
     cleanups.splice(0).forEach(cleanup => cleanup());
   };
