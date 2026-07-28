@@ -1244,18 +1244,18 @@ export async function initLiquidGlass(documentImpl, windowImpl, glassElement) {
   // not need to resolve a remote HTTPS module.
   const { LiquidGlass } = await import(LIQUID_GLASS_CDN);
   glassElement.dataset.config = JSON.stringify({
-    blurAmount: 0.2,
-    refraction: 0.72,
-    chromAberration: 0.035,
-    edgeHighlight: 0.08,
-    specular: 0.12,
-    fresnel: 0.8,
-    cornerRadius: 12,
-    zRadius: 24,
-    opacity: 0.94,
-    shadowOpacity: 0.28,
-    shadowSpread: 10,
-    shadowOffsetY: 3,
+    blurAmount: 0.14,
+    refraction: 0.58,
+    chromAberration: 0.025,
+    edgeHighlight: 0.06,
+    specular: 0.08,
+    fresnel: 0.65,
+    cornerRadius: 14,
+    zRadius: 20,
+    opacity: 0.62,
+    shadowOpacity: 0.2,
+    shadowSpread: 8,
+    shadowOffsetY: 2,
   });
 
   const instance = await LiquidGlass.init({
