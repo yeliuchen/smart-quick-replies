@@ -8,6 +8,7 @@ import {
   parseModelList,
   requestCompletion,
   requestModels,
+  resolveApiRequestConfig,
 } from '../index.js';
 
 test('OpenAI request uses system messages and bearer authentication', () => {
@@ -59,6 +60,19 @@ test('response and model list parsers support common provider shapes', () => {
   assert.equal(parseProviderResponse({ content: [{ type: 'text', text: '["a","b","c","d"]' }] }, 'anthropic'), '["a","b","c","d"]');
   assert.deepEqual(parseModelList({ data: [{ id: 'z' }, { id: 'a' }] }), ['a', 'z']);
   assert.deepEqual(parseModelList({ models: [{ name: 'b' }, { model: 'a' }] }), ['a', 'b']);
+});
+
+test('OpenAI-compatible responses accept text-part content arrays', () => {
+  assert.equal(parseProviderResponse({ choices: [{ message: { content: [{ type: 'text', text: '["a","b","c","d"]' }] } }] }, 'openai'), '["a","b","c","d"]');
+});
+
+test('runtime API config prefers the current settings input key', () => {
+  const config = resolveApiRequestConfig({ api: { type: 'google', autoDetect: true, url: 'https://gcli.ggchan.dev', key: '' } }, {
+    inputApiKey: 'current-key',
+    runtimeApiKey: 'stale-key',
+  });
+  assert.equal(config.type, 'openai');
+  assert.equal(config.key, 'current-key');
 });
 
 test('Google response and model list parsers support native Gemini shapes', () => {

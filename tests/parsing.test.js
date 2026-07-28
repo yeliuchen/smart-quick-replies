@@ -26,6 +26,10 @@ test('candidate parser removes code fences and rejects duplicates or wrong count
   assert.throws(() => parseCandidateArray('["a","b"]'), /four distinct/);
 });
 
+test('candidate parser explains when the provider did not return four usable replies', () => {
+  assert.throws(() => parseCandidateResults('The model returned a normal paragraph instead of JSON.'), error => /JSON array|format/i.test(error.message));
+});
+
 test('candidate parser accepts four markdown Option lines from reasoning models', () => {
   const text = [
     '分析：需要给出四个候选。',

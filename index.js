@@ -182,7 +182,7 @@ export function expandPrompt(template, values = {}) {
 }
 
 export class InvalidCandidateError extends Error {
-  constructor(message = 'Response must contain four distinct non-empty replies') {
+  constructor(message = 'Response format invalid: expected a JSON array of four distinct non-empty replies') {
     super(message);
     this.name = 'InvalidCandidateError';
   }
@@ -554,6 +554,13 @@ export function parseProviderResponse(payload, apiType = 'openai') {
   }
   const choice = payload?.choices?.[0];
   if (typeof choice?.message?.content === 'string') return choice.message.content;
+  if (Array.isArray(choice?.message?.content)) {
+    const text = choice.message.content
+      .filter(part => typeof part?.text === 'string')
+      .map(part => part.text)
+      .join('');
+    if (text) return text;
+  }
   if (typeof choice?.text === 'string') return choice.text;
   if (typeof payload?.output_text === 'string') return payload.output_text;
   throw new Error('API response did not contain text');
@@ -1111,6 +1118,18 @@ export function shouldSuggestOnCharacterRendered(settings = {}, generationActive
   return !generationActive && settings.triggerMode === 'auto';
 }
 
+export function resolveApiRequestConfig(settings = {}, options = {}) {
+  const api = settings.api ?? {};
+  const type = detectApiType(api.url, api.type, api.autoDetect);
+  const inputApiKey = String(options.inputApiKey ?? '').trim();
+  const runtimeApiKey = String(options.runtimeApiKey ?? '').trim();
+  return {
+    ...api,
+    type,
+    key: inputApiKey || String(api.key ?? '').trim() || runtimeApiKey || String(settings.apiKey ?? '').trim(),
+  };
+}
+
 const subscribeEvent = (source, eventName, handler) => {
   if (!source || !eventName) return () => {};
   if (typeof source.on === 'function') {
@@ -1187,8 +1206,10 @@ export function bootstrap(context = {}) {
     }
   };
   const resolveApiConfig = currentSettings => {
-    const type = detectApiType(currentSettings.api.url, currentSettings.api.type, currentSettings.api.autoDetect);
-    return { ...currentSettings.api, type, key: currentSettings.api.key ?? context.apiKey ?? currentSettings.apiKey ?? '' };
+    return resolveApiRequestConfig(currentSettings, {
+      inputApiKey: documentImpl.querySelector('#sqr-api-key')?.value,
+      runtimeApiKey: context.apiKey,
+    });
   };
   const requestSuggestions = async (interrupted = false) => {
     const currentSettings = getSettings();
