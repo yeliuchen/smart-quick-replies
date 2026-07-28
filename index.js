@@ -1101,11 +1101,13 @@ export function createPanel(documentImpl, callbacks = {}) {
   const hide = () => {
     element.hidden = true;
     element.style.display = 'none';
+    callbacks.onVisibilityChange?.(false);
   };
   const show = options => {
     if (options?.position) setPosition(options.position);
     element.hidden = false;
     element.style.display = 'flex';
+    callbacks.onVisibilityChange?.(true);
   };
   const setPosition = next => {
     if (!Number.isFinite(Number(next?.left)) || !Number.isFinite(Number(next?.top))) return;
@@ -1322,7 +1324,26 @@ export function bootstrap(context = {}) {
   const storage = context.storage ?? windowImpl?.localStorage;
   const positionStore = createPositionStore(storage, 'smart-quick-replies.position');
   const coordinator = createRequestCoordinator(context.AbortController ?? windowImpl?.AbortController ?? globalThis.AbortController);
-  const panel = createPanel(documentImpl, {
+  let liquidGlassInstance = null;
+  let liquidGlassInitPromise = null;
+  let liquidGlassScheduleId = null;
+  let ensureLiquidGlass = () => {};
+  const disposeLiquidGlass = () => {
+    if (liquidGlassScheduleId !== null) {
+      if (typeof windowImpl?.cancelIdleCallback === 'function') windowImpl.cancelIdleCallback(liquidGlassScheduleId);
+      else (context.clearTimeout ?? globalThis.clearTimeout)(liquidGlassScheduleId);
+      liquidGlassScheduleId = null;
+    }
+    liquidGlassInstance?.destroy?.();
+    liquidGlassInstance = null;
+    panel?.element?.classList.remove('sqr-liquidglass-ready');
+  };
+  let panel;
+  panel = createPanel(documentImpl, {
+    onVisibilityChange: visible => {
+      if (visible) ensureLiquidGlass();
+      else disposeLiquidGlass();
+    },
     onMove: position => {
       const rect = panel.element.getBoundingClientRect();
       const viewport = { width: windowImpl?.innerWidth ?? 0, height: windowImpl?.innerHeight ?? 0 };
@@ -1330,14 +1351,29 @@ export function bootstrap(context = {}) {
       panel.setPosition(safePosition);
       positionStore.write(safePosition);
     },
-    onRefresh: () => requestSuggestions(lastRequestInterrupted),
+      onRefresh: () => requestSuggestions(lastRequestInterrupted),
   });
-  let liquidGlassInstance = null;
-  void initLiquidGlass(documentImpl, windowImpl, panel.element)
-    .then(instance => { liquidGlassInstance = instance; })
-    .catch(() => {
-      // Keep the existing CSS glass styling when WebGL/CDN loading is unavailable.
-    });
+  ensureLiquidGlass = () => {
+    if (liquidGlassInstance || liquidGlassInitPromise || liquidGlassScheduleId !== null || !panel.isVisible()) return;
+    const start = () => {
+      liquidGlassScheduleId = null;
+      if (!panel.isVisible()) return;
+      liquidGlassInitPromise = initLiquidGlass(documentImpl, windowImpl, panel.element)
+        .then(instance => {
+          if (!panel.isVisible()) instance?.destroy?.();
+          else liquidGlassInstance = instance;
+        })
+        .catch(() => {
+          // Keep the existing CSS glass styling when WebGL/CDN loading is unavailable.
+        })
+        .finally(() => { liquidGlassInitPromise = null; });
+    };
+    if (typeof windowImpl?.requestIdleCallback === 'function') {
+      liquidGlassScheduleId = windowImpl.requestIdleCallback(start, { timeout: 1200 });
+    } else {
+      liquidGlassScheduleId = (context.setTimeout ?? globalThis.setTimeout)(start, 0);
+    }
+  };
   const cleanups = [];
   let lastRequestInterrupted = false;
   let stoppedTimer = null;
@@ -1506,8 +1542,7 @@ export function bootstrap(context = {}) {
   (sendButton?.parentElement ?? sendForm ?? documentImpl.body)?.appendChild(manualButton);
   cleanups.push(() => manualButton.remove?.());
   cleanups.push(() => {
-    liquidGlassInstance?.destroy?.();
-    liquidGlassInstance = null;
+    disposeLiquidGlass();
     panel.destroy();
   });
   const manualClick = () => requestSuggestions(false);
