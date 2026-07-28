@@ -1285,6 +1285,7 @@ export function createReplyPanelLiquidGlassController(panel, options = {}) {
   let initPromise = null;
   let scheduleId = null;
   let generation = 0;
+  let destroyed = false;
 
   const dispose = () => {
     generation += 1;
@@ -1298,12 +1299,18 @@ export function createReplyPanelLiquidGlassController(panel, options = {}) {
     panel?.element?.classList.remove('sqr-liquidglass-ready');
   };
 
+  const destroy = () => {
+    if (destroyed) return;
+    destroyed = true;
+    dispose();
+  };
+
   const ensure = () => {
-    if (!panel?.isVisible?.() || instance || initPromise || scheduleId !== null) return;
+    if (destroyed || !panel?.isVisible?.() || instance || initPromise || scheduleId !== null) return;
     const initGeneration = ++generation;
     const start = () => {
       scheduleId = null;
-      if (!panel.isVisible() || initGeneration !== generation) return;
+      if (destroyed || !panel.isVisible() || initGeneration !== generation) return;
       let pending;
       try {
         pending = init(panel);
@@ -1318,7 +1325,7 @@ export function createReplyPanelLiquidGlassController(panel, options = {}) {
           if (!panel.isVisible() || initGeneration !== generation) {
             nextInstance.destroy?.();
             panel.element.classList.remove('sqr-liquidglass-ready');
-            retryWhenSettled = panel.isVisible();
+            retryWhenSettled = !destroyed && panel.isVisible();
             return;
           }
           instance = nextInstance;
@@ -1326,10 +1333,11 @@ export function createReplyPanelLiquidGlassController(panel, options = {}) {
         })
         .catch(() => {
           panel.element.classList.remove('sqr-liquidglass-ready');
+          retryWhenSettled = !destroyed && initGeneration !== generation && panel.isVisible();
         })
         .finally(() => {
           initPromise = null;
-          if (retryWhenSettled && panel.isVisible()) ensure();
+          if (!destroyed && retryWhenSettled && panel.isVisible()) ensure();
         });
     };
     if (typeof windowImpl?.requestIdleCallback === 'function') {
@@ -1339,7 +1347,7 @@ export function createReplyPanelLiquidGlassController(panel, options = {}) {
     }
   };
 
-  return { ensure, dispose };
+  return { ensure, dispose, destroy };
 }
 
 const DEFAULT_EVENT_TYPES = Object.freeze({
@@ -1589,7 +1597,7 @@ export function bootstrap(context = {}) {
   (sendButton?.parentElement ?? sendForm ?? documentImpl.body)?.appendChild(manualButton);
   cleanups.push(() => manualButton.remove?.());
   cleanups.push(() => {
-    liquidGlassController.dispose();
+    liquidGlassController.destroy();
     panel.destroy();
   });
   const manualClick = () => requestSuggestions(false);

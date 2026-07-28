@@ -126,3 +126,75 @@ test('visible panel retries after a stale async LiquidGlass init without a false
   assert.equal(currentInstance.destroyCalls, 1);
   assert.equal(classes.has('sqr-liquidglass-ready'), false);
 });
+
+test('visible panel retries when a stale LiquidGlass initialization rejects', async () => {
+  const scheduled = [];
+  const initRejectors = [];
+  let visible = true;
+  const panel = {
+    element: { classList: { add() {}, remove() {} } },
+    isVisible: () => visible,
+  };
+  const controller = extension.createReplyPanelLiquidGlassController(panel, {
+    window: {
+      requestIdleCallback(callback) {
+        scheduled.push(callback);
+        return scheduled.length;
+      },
+      cancelIdleCallback() {},
+    },
+    init: () => new Promise((_resolve, reject) => initRejectors.push(reject)),
+  });
+
+  controller.ensure();
+  scheduled.shift()();
+  visible = false;
+  controller.dispose();
+  visible = true;
+  controller.ensure();
+
+  initRejectors.shift()(new Error('stale initialization failed'));
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(scheduled.length, 1);
+  controller.dispose();
+});
+
+test('permanent LiquidGlass teardown suppresses retries after a pending init settles', async () => {
+  const classes = new Set();
+  const scheduled = [];
+  let resolveInit;
+  const panel = {
+    element: {
+      classList: {
+        add: value => classes.add(value),
+        remove: value => classes.delete(value),
+      },
+    },
+    isVisible: () => true,
+  };
+  const controller = extension.createReplyPanelLiquidGlassController(panel, {
+    window: {
+      requestIdleCallback(callback) {
+        scheduled.push(callback);
+        return scheduled.length;
+      },
+      cancelIdleCallback() {},
+    },
+    init: () => new Promise(resolve => { resolveInit = resolve; }),
+  });
+
+  controller.ensure();
+  scheduled.shift()();
+  controller.destroy();
+
+  const staleInstance = { destroyCalls: 0, destroy() { this.destroyCalls += 1; } };
+  resolveInit(staleInstance);
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(staleInstance.destroyCalls, 1);
+  assert.equal(classes.has('sqr-liquidglass-ready'), false);
+  assert.equal(scheduled.length, 0);
+  controller.ensure();
+  assert.equal(scheduled.length, 0);
+});
