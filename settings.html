@@ -122,7 +122,7 @@
     <div class="sqr-settings-section-content" id="sqr-prompt-content" data-sqr-section-content>
       <div class="sqr-prompt-toolbar">
         <span>系统提示词</span>
-        <button id="sqr-reset-prompt" class="menu_button" type="button">恢复默认提示词</button>
+        <button id="sqr-reset-prompt" class="menu_button sqr-horizontal-button" type="button">恢复默认提示词</button>
       </div>
       <label class="sqr-field sqr-field-wide">
       <textarea id="sqr-system-prompt" rows="8" data-sqr-setting="systemPrompt" spellcheck="false"></textarea>
@@ -225,6 +225,20 @@
         </div>
       </div>
       </div>
+    </div>
+  </details>
+
+  <details class="sqr-settings-section" id="sqr-debug" data-sqr-section>
+    <summary class="sqr-section-toggle" data-sqr-collapse="sqr-debug" aria-expanded="false">
+      <span>Debug 调试详情</span>
+      <span class="sqr-section-toggle-icon" aria-hidden="true">▾</span>
+    </summary>
+    <div class="sqr-settings-section-content" id="sqr-debug-content" data-sqr-section-content>
+      <div class="sqr-debug-toolbar">
+        <span>最近请求、响应和解析事件（自动脱敏，不记录 API Key）</span>
+        <button id="sqr-clear-debug" class="menu_button sqr-horizontal-button" type="button">清空 Debug</button>
+      </div>
+      <pre id="sqr-debug-output" class="sqr-debug-output" aria-live="polite">暂无 Debug 记录。</pre>
     </div>
   </details>
 </div>

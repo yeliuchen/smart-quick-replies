@@ -66,7 +66,7 @@ test('default panel position is directly above the input', () => {
 
 test('settings markup contains all required sections and controls', () => {
   const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
-  for (const id of ['sqr-general', 'sqr-api', 'sqr-prompt', 'sqr-context', 'sqr-appearance', 'sqr-trigger-mode', 'sqr-api-type', 'sqr-api-auth-mode', 'sqr-api-url', 'sqr-api-key', 'sqr-model', 'sqr-fetch-models', 'sqr-system-prompt', 'sqr-reset-prompt', 'sqr-reset-position', 'sqr-history-limit', 'sqr-compression-strategy']) {
+  for (const id of ['sqr-general', 'sqr-api', 'sqr-prompt', 'sqr-context', 'sqr-appearance', 'sqr-debug', 'sqr-trigger-mode', 'sqr-api-type', 'sqr-api-auth-mode', 'sqr-api-url', 'sqr-api-key', 'sqr-model', 'sqr-fetch-models', 'sqr-system-prompt', 'sqr-reset-prompt', 'sqr-reset-position', 'sqr-history-limit', 'sqr-compression-strategy', 'sqr-debug-output', 'sqr-clear-debug']) {
     assert.match(html, new RegExp('id=["\\\']' + id + '["\\\']'));
   }
 });
@@ -78,7 +78,7 @@ test('settings use one outer drawer and five independent inner drawers', () => {
   assert.match(html, /data-sqr-root-toggle[^>]*>\s*<b>智能快捷回复建议<\/b>\s*<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"><\/div>/s);
   assert.match(html, /class="inline-drawer-content"[^>]*data-sqr-root-content[^>]*hidden/);
   assert.doesNotMatch(html, /data-sqr-tab=/);
-  for (const id of ['general', 'api', 'prompt', 'context', 'appearance']) {
+  for (const id of ['general', 'api', 'prompt', 'context', 'appearance', 'debug']) {
     assert.match(html, new RegExp(`<details[^>]*id="sqr-${id}"[^>]*data-sqr-section`));
     assert.match(html, new RegExp(`data-sqr-collapse="sqr-${id}"`));
     assert.match(html, new RegExp(`id="sqr-${id}"[^>]*>(?:\\s|.)*?<summary`));
@@ -91,6 +91,7 @@ test('settings use compact root heading and inline model and prompt toolbars', (
   assert.match(html, /id="sqr-button-color"[^>]*data-sqr-setting="appearance\.buttonColor"/);
   assert.match(html, /id="sqr-button-text-color"[^>]*data-sqr-setting="appearance\.buttonTextColor"/);
   assert.match(html, /<option value="google">Google Gemini/);
+  assert.match(html, /id="sqr-reset-prompt"[^>]*sqr-horizontal-button/);
   assert.match(html, /data-sqr-color-picker[\s\S]*data-sqr-color-value="#4f8cff"/);
   assert.match(html, /data-sqr-color-picker[\s\S]*data-sqr-color-value="#ffffff"/);
   assert.match(html, /class="sqr-model-toolbar"[\s\S]*id="sqr-model-search"[\s\S]*id="sqr-fetch-models"/);
@@ -114,6 +115,8 @@ test('settings CSS gives form controls theme-aware colors', () => {
   assert.match(css, /background:\s*var\(--sqr-input-background/);
   assert.match(css, /color:\s*var\(--sqr-input-text/);
   assert.match(css, /::placeholder/);
+  assert.match(css, /\.sqr-horizontal-button[\s\S]*white-space:\s*nowrap/);
+  assert.match(css, /\.sqr-debug-output[\s\S]*white-space:\s*pre-wrap/);
 });
 
 test('suggestion buttons use multiline clamping instead of single-line ellipsis', () => {

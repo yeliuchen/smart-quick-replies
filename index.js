@@ -614,6 +614,36 @@ export class ProviderResponseError extends Error {
   }
 }
 
+const previewDebugText = (value, limit = 4000) => {
+  const text = String(value ?? '');
+  return text.length > limit ? `${text.slice(0, limit)}\n… [truncated]` : text;
+};
+
+export function summarizeProviderPayload(payload, apiType = 'openai') {
+  const type = getApiType({ type: apiType });
+  const choice = payload?.choices?.[0];
+  const message = choice?.message;
+  const standardContent = type === 'google'
+    ? payload?.candidates?.[0]?.content?.parts?.filter(part => typeof part?.text === 'string').map(part => part.text).join('')
+    : Array.isArray(message?.content)
+      ? message.content.filter(part => typeof part?.text === 'string').map(part => part.text).join('')
+      : message?.content ?? choice?.text ?? payload?.output_text ?? '';
+  const reasoning = type === 'google'
+    ? ''
+    : message?.reasoning_content ?? message?.reasoning ?? '';
+  return {
+    topLevelKeys: Object.keys(payload ?? {}),
+    finishReason: choice?.finish_reason ?? payload?.candidates?.[0]?.finishReason ?? null,
+    standardContentLength: String(standardContent ?? '').length,
+    standardContentPreview: previewDebugText(standardContent),
+    reasoningContentLength: String(reasoning ?? '').length,
+    reasoningContentPreview: previewDebugText(reasoning, 1200),
+    choices: Array.isArray(payload?.choices) ? payload.choices.length : undefined,
+    candidates: Array.isArray(payload?.candidates) ? payload.candidates.length : undefined,
+    usage: payload?.usage ?? null,
+  };
+}
+
 const fetchJson = async (fetchImpl, url, init) => {
   const response = await fetchImpl(url, init);
   if (!response?.ok) {
@@ -649,8 +679,20 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     }, timeoutMs)
     : null;
   const request = buildCompletionRequest(config, promptData, controller?.signal ?? externalSignal);
+  const debug = typeof dependencies.onDebug === 'function' ? dependencies.onDebug : null;
+  const debugBase = {
+    provider: getApiType(config),
+    url: request.url,
+    model: String(config.model ?? '').trim(),
+    maxTokens: Number(config.maxTokens ?? config.max_tokens ?? 80),
+    authMode: getAuthMode(config),
+    messageCount: Array.isArray(promptData.messages) ? promptData.messages.length : 0,
+  };
+  debug?.({ phase: 'request', ...debugBase });
   try {
     let payload = await fetchJson(fetchImpl, request.url, request.init);
+    debug?.({ phase: 'response', attempt: 1, ...debugBase, payload: summarizeProviderPayload(payload, config.type) });
+    let attempt = 1;
     for (const retryMaxTokens of [512, 1024]) {
       const choice = payload?.choices?.[0];
       const message = choice?.message;
@@ -663,7 +705,9 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
         maxTokens: Math.max(Number(config.maxTokens ?? config.max_tokens ?? 80), retryMaxTokens),
       };
       const retryRequest = buildCompletionRequest(retryConfig, promptData, controller?.signal ?? externalSignal);
+      attempt += 1;
       payload = await fetchJson(fetchImpl, retryRequest.url, retryRequest.init);
+      debug?.({ phase: 'response', attempt, ...debugBase, maxTokens: retryConfig.maxTokens, payload: summarizeProviderPayload(payload, config.type) });
     }
     const type = getApiType(config);
     const message = payload?.choices?.[0]?.message;
@@ -672,6 +716,7 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     }
     return parseProviderResponse(payload, config.type);
   } catch (error) {
+    debug?.({ phase: 'error', ...debugBase, error: { name: error?.name, message: error?.message, status: error?.status, stack: previewDebugText(error?.stack, 2000) } });
     if (timedOut) throw createAbortError('API request timed out');
     if (error?.name === 'AbortError') throw createAbortError('API request was cancelled');
     throw error instanceof Error ? error : new Error('API request failed');
@@ -1170,6 +1215,26 @@ export function bootstrap(context = {}) {
   let generationId = 0;
   let handledStopId = -1;
   let generationActive = false;
+  const debugOutput = documentImpl.querySelector('#sqr-debug-output');
+  const debugEntries = [];
+  const renderDebug = () => {
+    if (debugOutput) debugOutput.textContent = debugEntries.length
+      ? debugEntries.map(entry => JSON.stringify(entry, null, 2)).join('\n\n')
+      : '暂无 Debug 记录。';
+  };
+  const recordDebug = entry => {
+    debugEntries.push({ timestamp: new Date().toISOString(), ...entry });
+    if (debugEntries.length > 30) debugEntries.splice(0, debugEntries.length - 30);
+    renderDebug();
+  };
+  const clearDebug = () => {
+    debugEntries.splice(0);
+    renderDebug();
+  };
+  const clearDebugButton = documentImpl.querySelector('#sqr-clear-debug');
+  clearDebugButton?.addEventListener('click', clearDebug);
+  cleanups.push(() => clearDebugButton?.removeEventListener('click', clearDebug));
+  renderDebug();
 
   const getLiveContext = () => {
     if (typeof context.getContext === 'function') return context.getContext() ?? {};
@@ -1223,6 +1288,7 @@ export function bootstrap(context = {}) {
     panel.setCandidates([]);
     panel.setLoading(true);
     showPanel();
+    let raw = '';
     try {
       const live = getLiveContext();
       const charName = live.name2 ?? live.character?.name ?? 'Character';
@@ -1253,7 +1319,7 @@ export function bootstrap(context = {}) {
         }, {
           system: 'Summarize the early conversation history accurately and concisely for a reply suggestion assistant.',
           messages: [{ role: 'user', content: text }],
-        }, { fetch: fetchImpl, signal: request.signal });
+        }, { fetch: fetchImpl, signal: request.signal, onDebug: entry => recordDebug({ requestId: request.id, operation: 'summary', ...entry }) });
       });
       if (!coordinator.isCurrent(request.id)) return;
       const promptTemplate = description ? `Character description:\n${description}\n\n${currentSettings.systemPrompt}` : currentSettings.systemPrompt;
@@ -1263,10 +1329,11 @@ export function bootstrap(context = {}) {
         charDescription: description,
         userStyleExamples: formatUserStyleExamples(styleHistory.messages),
       });
-      const raw = await requestCompletion(apiConfig, promptData, {
+      raw = await requestCompletion(apiConfig, promptData, {
         fetch: fetchImpl,
         signal: request.signal,
         AbortController: context.AbortController ?? windowImpl?.AbortController ?? globalThis.AbortController,
+        onDebug: entry => recordDebug({ requestId: request.id, operation: 'suggestions', ...entry }),
       });
       if (!coordinator.isCurrent(request.id)) return;
       panel.setCandidates(parseCandidateResults(raw));
@@ -1274,6 +1341,13 @@ export function bootstrap(context = {}) {
       showPanel();
     } catch (error) {
       if (!coordinator.isCurrent(request.id)) return;
+      recordDebug({
+        requestId: request.id,
+        operation: 'parse-or-request',
+        phase: 'failure',
+        error: { name: error?.name, message: error?.message, stack: previewDebugText(error?.stack, 2000) },
+        rawResponsePreview: previewDebugText(raw, 4000),
+      });
       panel.setError(error?.name === 'AbortError' ? '请求已取消' : error?.message || '生成失败，请检查 API 配置');
       showPanel();
     } finally {

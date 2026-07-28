@@ -226,6 +226,34 @@
   flex: 0 0 auto;
 }
 
+.sqr-horizontal-button {
+  min-width: max-content;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+}
+
+.sqr-debug-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.sqr-debug-output {
+  background: var(--sqr-input-background);
+  border: 1px solid var(--sqr-input-border);
+  border-radius: 0.4rem;
+  color: var(--sqr-input-text);
+  font: 0.78rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  max-height: 28rem;
+  margin: 0;
+  overflow: auto;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .sqr-color-picker {
   position: relative;
 }
@@ -460,6 +488,16 @@
   }
 
   .sqr-prompt-toolbar button {
-    width: 100%;
+    width: max-content;
+  }
+
+  .sqr-debug-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .sqr-debug-toolbar .sqr-horizontal-button {
+    width: max-content;
   }
 }

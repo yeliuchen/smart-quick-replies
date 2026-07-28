@@ -9,6 +9,7 @@ import {
   requestCompletion,
   requestModels,
   resolveApiRequestConfig,
+  summarizeProviderPayload,
 } from '../index.js';
 
 test('OpenAI request uses system messages and bearer authentication', () => {
@@ -73,6 +74,15 @@ test('runtime API config prefers the current settings input key', () => {
   });
   assert.equal(config.type, 'openai');
   assert.equal(config.key, 'current-key');
+});
+
+test('provider payload debug summary exposes content and reasoning diagnostics without secrets', () => {
+  const summary = summarizeProviderPayload({ choices: [{ finish_reason: 'length', message: { content: '', reasoning_content: 'thinking' } }], usage: { total_tokens: 42 } }, 'lmstudio');
+  assert.equal(summary.finishReason, 'length');
+  assert.equal(summary.standardContentLength, 0);
+  assert.equal(summary.reasoningContentLength, 8);
+  assert.equal(summary.usage.total_tokens, 42);
+  assert.doesNotMatch(JSON.stringify(summary), /secret|authorization/i);
 });
 
 test('Google response and model list parsers support native Gemini shapes', () => {
