@@ -193,6 +193,14 @@ const extractMarkdownOptions = text => {
   return [1, 2, 3, 4].map(index => options.get(index));
 };
 
+const extractReplyLines = text => {
+  const source = String(text ?? '');
+  const matches = [...source.matchAll(/(?:^|\r?\n)\s*(?:[-*]\s*)?(?:\*\*)?Reply\s*([1-4])(?:\*\*)?\s*[:：]\s*(?:"([\s\S]*?)"|([^\r\n]+))/gi)];
+  const replies = new Map(matches.map(match => [Number(match[1]), (match[2] ?? match[3] ?? '').trim()]));
+  if (replies.size !== 4 || [...replies.values()].some(value => !value)) return null;
+  return [1, 2, 3, 4].map(index => replies.get(index));
+};
+
 const validateCandidates = parsed => {
   if (!Array.isArray(parsed) || parsed.length !== 4 || parsed.some(item => typeof item !== 'string' || !item.trim())) return null;
   const candidates = parsed.map(item => item.trim());
@@ -206,6 +214,8 @@ export function parseCandidateArray(text) {
   } catch {
     // Fall through to the Markdown option parser for reasoning-model output.
   }
+  const replyLines = validateCandidates(extractReplyLines(text));
+  if (replyLines) return replyLines;
   const markdownOptions = validateCandidates(extractMarkdownOptions(text));
   if (markdownOptions) return markdownOptions;
   throw new InvalidCandidateError();
@@ -395,7 +405,7 @@ export function buildModelsRequest(config = {}) {
   };
 }
 
-export function parseProviderResponse(payload, apiType = 'openai') {
+export function parseProviderResponse(payload, apiType = 'openai', options = {}) {
   const type = getApiType({ type: apiType });
   if (typeof payload === 'string') return payload;
   if (type === 'anthropic') {
@@ -405,7 +415,13 @@ export function parseProviderResponse(payload, apiType = 'openai') {
     if (textBlock) return textBlock.text;
   }
   const choice = payload?.choices?.[0];
-  if (typeof choice?.message?.content === 'string') return choice.message.content;
+  if (typeof choice?.message?.content === 'string') {
+    const content = choice.message.content;
+    const reasoning = options.includeReasoning
+      ? String(choice.message.reasoning_content ?? choice.message.reasoning ?? '').trim()
+      : '';
+    return [content, reasoning].filter(Boolean).join('\n\n');
+  }
   if (typeof choice?.text === 'string') return choice.text;
   if (typeof payload?.output_text === 'string') return payload.output_text;
   throw new Error('API response did not contain text');
@@ -474,7 +490,7 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
       const retryRequest = buildCompletionRequest(retryConfig, promptData, controller?.signal ?? externalSignal);
       payload = await fetchJson(fetchImpl, retryRequest.url, retryRequest.init);
     }
-    return parseProviderResponse(payload, config.type);
+    return parseProviderResponse(payload, config.type, { includeReasoning: Boolean(promptData.generationInstruction) });
   } catch (error) {
     if (timedOut) throw createAbortError('API request timed out');
     if (error?.name === 'AbortError') throw createAbortError('API request was cancelled');

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectApiType, normalizeEndpoint, expandPrompt, parseCandidateArray } from '../index.js';
+import { detectApiType, normalizeEndpoint, expandPrompt, parseCandidateArray, parseProviderResponse } from '../index.js';
 
 test('auto detection recognizes Anthropic and LM Studio URLs', () => {
   assert.equal(detectApiType('https://api.anthropic.com/v1', 'openai', true), 'anthropic');
@@ -40,4 +40,25 @@ test('candidate parser accepts four markdown Option lines from reasoning models'
     '我在这里陪着你。',
     '我们慢慢聊吧。',
   ]);
+});
+
+test('candidate parser prefers final Reply lines over reasoning-only option descriptions', () => {
+  const text = [
+    '* Option 1: Cheeky/Playful',
+    '* Option 2: Soft/Endearing',
+    '* Option 3: Acting hurt/Cute',
+    '* Option 4: Direct/Bold',
+    '* Reply 1: "Reply one" (Playful)',
+    '* Reply 2: "Reply two" (Teasing)',
+    '* Reply 3: "Reply three" (Cute)',
+    '* Reply 4: "Reply four" (Bold)',
+  ].join('\n');
+  assert.deepEqual(parseCandidateArray(text), ['Reply one', 'Reply two', 'Reply three', 'Reply four']);
+});
+
+test('LM Studio suggestion response can include reasoning content for parsing', () => {
+  const text = parseProviderResponse({
+    choices: [{ message: { content: '```json\n[', reasoning_content: '* Reply 1: "one"\n* Reply 2: "two"\n* Reply 3: "three"\n* Reply 4: "four"' } }],
+  }, 'lmstudio', { includeReasoning: true });
+  assert.match(text, /Reply 4/);
 });
