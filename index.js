@@ -693,13 +693,17 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     let payload = await fetchJson(fetchImpl, request.url, request.init);
     debug?.({ phase: 'response', attempt: 1, ...debugBase, payload: summarizeProviderPayload(payload, config.type) });
     let attempt = 1;
-    for (const retryMaxTokens of [512, 1024]) {
+    const retryBudgets = getApiType(config) === 'lmstudio' ? [512, 1024] : [256, 512, 1024];
+    for (const retryMaxTokens of retryBudgets) {
       const choice = payload?.choices?.[0];
       const message = choice?.message;
       const reasoningOnly = getApiType(config) === 'lmstudio'
         && message
         && !String(message.content ?? '').trim();
-      if (!reasoningOnly) break;
+      const truncated = choice?.finish_reason === 'length'
+        || payload?.candidates?.[0]?.finishReason === 'MAX_TOKENS';
+      if (!reasoningOnly && !truncated) break;
+      if (retryMaxTokens <= Number(config.maxTokens ?? config.max_tokens ?? 80)) continue;
       const retryConfig = {
         ...config,
         maxTokens: Math.max(Number(config.maxTokens ?? config.max_tokens ?? 80), retryMaxTokens),

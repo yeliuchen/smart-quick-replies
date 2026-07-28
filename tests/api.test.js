@@ -171,6 +171,33 @@ test('LM Studio retries a reasoning-only length response with a larger token bud
   assert.equal(requests[2].max_tokens, 1024);
 });
 
+test('OpenAI-compatible requests retry truncated JSON with larger token budgets', async () => {
+  const requests = [];
+  const fetchImpl = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    requests.push(body.max_tokens);
+    if (requests.length < 3) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '[{"reply":"' }, finish_reason: 'length' }] }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: '[{"reply":"a","progression":false},{"reply":"b","progression":false},{"reply":"c","progression":false},{"reply":"d","progression":false}]' }, finish_reason: 'stop' }] }),
+    };
+  };
+  const text = await requestCompletion(
+    { type: 'openai', url: 'https://gateway.example/v1', key: 'secret', model: 'gemini', maxTokens: 81 },
+    { messages: [] },
+    { fetch: fetchImpl },
+  );
+  assert.match(text, /"reply":"d"/);
+  assert.deepEqual(requests, [81, 256, 512]);
+});
+
 test('LM Studio retries an empty response even without reasoning content', async () => {
   let callCount = 0;
   const fetchImpl = async () => {
