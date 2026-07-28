@@ -16,6 +16,7 @@ import {
   writeApiKey,
   resolveRuntimeSettings,
   shouldSuggestOnCharacterRendered,
+  decideAutoSuggestionTrigger,
 } from '../index.js';
 
 test('default settings use automatic trigger, 20 messages, compression, and four candidates', () => {
@@ -200,4 +201,11 @@ test('character render suggestions wait until the main generation stops', () => 
   assert.equal(shouldSuggestOnCharacterRendered({ triggerMode: 'auto' }, true), false);
   assert.equal(shouldSuggestOnCharacterRendered({ triggerMode: 'auto' }, false), true);
   assert.equal(shouldSuggestOnCharacterRendered({ triggerMode: 'manual' }, false), false);
+});
+
+test('auto suggestions trigger after either render-before-stop or stop-only interruption', () => {
+  assert.deepEqual(decideAutoSuggestionTrigger({ triggerMode: 'auto', interruptedAutoGenerate: true }, { generationActive: true, characterRendered: true }), null);
+  assert.deepEqual(decideAutoSuggestionTrigger({ triggerMode: 'auto', interruptedAutoGenerate: true }, { generationActive: false, characterRendered: true }), { interrupted: false });
+  assert.deepEqual(decideAutoSuggestionTrigger({ triggerMode: 'auto', interruptedAutoGenerate: true }, { generationActive: false, characterRendered: false }), { interrupted: true });
+  assert.equal(decideAutoSuggestionTrigger({ triggerMode: 'manual', interruptedAutoGenerate: true }, { generationActive: false, characterRendered: true }), null);
 });

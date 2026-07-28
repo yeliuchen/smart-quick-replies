@@ -1249,6 +1249,12 @@ export function shouldSuggestOnCharacterRendered(settings = {}, generationActive
   return !generationActive && settings.triggerMode === 'auto';
 }
 
+export function decideAutoSuggestionTrigger(settings = {}, state = {}) {
+  if (settings.triggerMode !== 'auto' || state.generationActive) return null;
+  if (state.characterRendered) return { interrupted: false };
+  return settings.interruptedAutoGenerate ? { interrupted: true } : null;
+}
+
 export function resolveApiRequestConfig(settings = {}, options = {}) {
   const api = settings.api ?? {};
   const type = detectApiType(api.url, api.type, api.autoDetect);
@@ -1300,6 +1306,7 @@ export function bootstrap(context = {}) {
   let stoppedTimer = null;
   let generationId = 0;
   let handledStopId = -1;
+  let characterRenderedGenerationId = -1;
   let generationActive = false;
   const debugOutput = documentImpl.querySelector('#sqr-debug-output');
   const debugEntries = [];
@@ -1441,6 +1448,16 @@ export function bootstrap(context = {}) {
     }
   };
 
+  const scheduleAutoSuggestion = interrupted => {
+    if (handledStopId === generationId) return;
+    handledStopId = generationId;
+    if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
+    stoppedTimer = (context.setTimeout ?? globalThis.setTimeout)(() => {
+      stoppedTimer = null;
+      requestSuggestions(interrupted);
+    }, 100);
+  };
+
   const manualButton = documentImpl.createElement('button');
   manualButton.id = 'sqr-manual-trigger';
   manualButton.type = 'button';
@@ -1461,24 +1478,33 @@ export function bootstrap(context = {}) {
     generationActive = true;
     generationId += 1;
     handledStopId = -1;
+    characterRenderedGenerationId = -1;
     coordinator.cancel();
     panel.hide();
   });
   eventHandler('CHARACTER_MESSAGE_RENDERED', () => {
+    characterRenderedGenerationId = generationId;
     const currentSettings = getSettings();
-    if (shouldSuggestOnCharacterRendered(currentSettings, generationActive)) requestSuggestions(false);
+    const trigger = decideAutoSuggestionTrigger(currentSettings, {
+      generationActive,
+      characterRendered: true,
+    });
+    if (trigger) scheduleAutoSuggestion(trigger.interrupted);
   });
   eventHandler('GENERATION_STOPPED', () => {
     generationActive = false;
     const currentSettings = getSettings();
-    if (currentSettings.triggerMode !== 'auto' || !currentSettings.interruptedAutoGenerate || handledStopId === generationId) return;
-    handledStopId = generationId;
-    if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
-    stoppedTimer = (context.setTimeout ?? globalThis.setTimeout)(() => {
+    const trigger = decideAutoSuggestionTrigger(currentSettings, {
+      generationActive,
+      characterRendered: characterRenderedGenerationId === generationId,
+    });
+    if (!trigger) return;
+    if (trigger.interrupted) {
       const live = getLiveContext();
       const last = live.chat?.at?.(-1);
-      if (last && !last.is_user) requestSuggestions(true);
-    }, 100);
+      if (!last || last.is_user) return;
+    }
+    scheduleAutoSuggestion(trigger.interrupted);
   });
   for (const name of ['CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_CREATED']) eventHandler(name, () => { coordinator.cancel(); panel.hide(); });
   eventHandler('MESSAGE_SENT', () => { if (getSettings().dismissAfterSend) panel.hide(); });
