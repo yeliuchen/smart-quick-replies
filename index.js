@@ -11,6 +11,7 @@ Rules:
 - Use the examples only as a style reference; do not copy their subject matter or sentences.
 - Never continue {{char}}'s dialogue, thoughts, actions, narration, or roleplay.
 - Never write stage directions, third-person narration, labels, explanations, or analysis.
+- Return message text only: do not wrap a reply in quotation marks and do not append labels such as "Acting", "Draft", "Option", or style explanations.
 - Treat the latest character message as the message the user needs to answer.
 
 Reply ONLY with a JSON array of exactly 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]`;
@@ -87,7 +88,10 @@ export function migrateSettings(saved = {}) {
   }
   const usesPreviousDefault = typeof source.systemPrompt === 'string'
     && source.systemPrompt.startsWith('You generate reply suggestions for the USER')
-    && !source.systemPrompt.includes('user style examples');
+    && !source.systemPrompt.includes('user style examples')
+    || typeof source.systemPrompt === 'string'
+      && source.systemPrompt.includes('user style examples')
+      && !source.systemPrompt.includes('do not wrap a reply');
   if (source.systemPrompt === LEGACY_SYSTEM_PROMPT || usesPreviousDefault) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
   source.version = 2;
   return source;
@@ -228,9 +232,17 @@ const extractNumberedReplies = text => {
   return [1, 2, 3, 4].map(index => replies.get(index));
 };
 
+const normalizeCandidateText = value => String(value ?? '')
+  .trim()
+  .replace(/^\s*["“「『]+/, '')
+  .replace(/["”」』]+\s*$/, '')
+  .replace(/\s*\((?:acting|draft|option|reply|message|playful|teasing|soft|bold|cute|flirty)[^)]*\)\s*$/i, '')
+  .trim();
+
 const validateCandidates = parsed => {
   if (!Array.isArray(parsed) || parsed.length !== 4 || parsed.some(item => typeof item !== 'string' || !item.trim())) return null;
-  const candidates = parsed.map(item => item.trim());
+  const candidates = parsed.map(normalizeCandidateText);
+  if (candidates.some(candidate => !candidate)) return null;
   return new Set(candidates).size === 4 ? candidates : null;
 };
 
@@ -375,7 +387,7 @@ export function buildPromptMessages(systemPrompt, history = { messages: [] }, va
   return {
     system: expanded,
     messages: hasHistoryPlaceholder ? [] : historyMessages.filter(message => message?.role !== 'system'),
-    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Output ONLY a JSON array of exactly 4 short strings.',
+    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. Output ONLY a JSON array of exactly 4 short strings.',
   };
 }
 

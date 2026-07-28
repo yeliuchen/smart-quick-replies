@@ -90,3 +90,12 @@ test('candidate parser accepts final Message labels from reasoning content', () 
   ].join('\n');
   assert.deepEqual(parseCandidateArray(text), ['One', 'Two', 'Three', 'Four']);
 });
+
+test('candidate parser removes outer quotes and acting metadata', () => {
+  assert.deepEqual(parseCandidateArray([
+    '1. "Reply one" (Acting)',
+    '2. "Reply two" (Teasing)',
+    '3. "Reply three" (Draft)',
+    '4. "Reply four"',
+  ].join('\n')), ['Reply one', 'Reply two', 'Reply three', 'Reply four']);
+});
