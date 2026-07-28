@@ -42,3 +42,15 @@ test('history placeholder is inserted into the system prompt without duplicate m
   assert.match(result.system, /Mira: Hi/);
   assert.deepEqual(result.messages, []);
 });
+
+test('system history is folded into one system prompt for chat templates', () => {
+  const result = buildPromptMessages('Return four replies.', {
+    messages: [
+      { name: 'Conversation summary', role: 'system', content: 'Earlier context summary.' },
+      { name: 'Amo', role: 'user', content: 'What happened?' },
+      { name: 'Mira', role: 'assistant', content: 'I can explain.' },
+    ],
+  });
+  assert.match(result.system, /Conversation summary:\nEarlier context summary\./);
+  assert.deepEqual(result.messages.map(message => message.role), ['user', 'assistant']);
+});

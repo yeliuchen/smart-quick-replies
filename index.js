@@ -307,11 +307,18 @@ export async function compressHistory(history = { messages: [] }, options = {}, 
 export function buildPromptMessages(systemPrompt, history = { messages: [] }, values = {}) {
   const historyMessages = Array.isArray(history.messages) ? history.messages : [];
   const historyText = values.history ?? formatHistoryText(historyMessages);
-  const expanded = expandPrompt(systemPrompt, { ...values, history: historyText });
+  const systemHistory = historyMessages
+    .filter(message => message?.role === 'system' && String(message.content ?? '').trim())
+    .map(message => String(message.content).trim())
+    .join('\n\n');
+  const promptWithSystemHistory = [systemPrompt, systemHistory ? `Conversation summary:\n${systemHistory}` : '']
+    .filter(Boolean)
+    .join('\n\n');
+  const expanded = expandPrompt(promptWithSystemHistory, { ...values, history: historyText });
   const hasHistoryPlaceholder = /\{\{\s*history\s*\}\}/i.test(String(systemPrompt ?? ''));
   return {
     system: expanded,
-    messages: hasHistoryPlaceholder ? [] : historyMessages,
+    messages: hasHistoryPlaceholder ? [] : historyMessages.filter(message => message?.role !== 'system'),
   };
 }
 
