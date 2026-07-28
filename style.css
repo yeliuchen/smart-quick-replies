@@ -45,8 +45,16 @@
   border: 1px solid var(--sqr-border);
   border-radius: 0.55rem;
   background: color-mix(in srgb, var(--sqr-panel) 88%, transparent);
-  margin-top: 0.5rem;
+  margin-top: 0.2rem;
   padding: 0.65rem 0.8rem 0.8rem;
+}
+
+.sqr-settings-section:not([open]) {
+  padding-bottom: 0.15rem;
+}
+
+.sqr-settings-section:not([open]) > .sqr-section-toggle {
+  margin-bottom: 0;
 }
 
 .sqr-section-toggle-icon {
@@ -267,6 +275,9 @@
 
 .sqr-color-picker-toggle {
   align-items: center;
+  background: #3a3a3f;
+  border: 1px solid var(--sqr-input-border);
+  color: var(--sqr-input-text);
   display: flex;
   gap: 0.5rem;
   justify-content: flex-start;

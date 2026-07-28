@@ -143,6 +143,9 @@ test('settings CSS gives form controls theme-aware colors', () => {
   assert.match(css, /\.sqr-horizontal-button[\s\S]*white-space:\s*nowrap/);
   assert.match(css, /\.sqr-debug-output[\s\S]*white-space:\s*pre-wrap/);
   assert.match(css, /\.sqr-color-picker-menu\s*\{[\s\S]*background:\s*#3a3a3f/);
+  assert.match(css, /\.sqr-color-picker-toggle\s*\{[\s\S]*background:\s*#3a3a3f[\s\S]*color:/);
+  assert.match(css, /\.sqr-settings-section:not\(\[open\]\)[\s\S]*padding-bottom:\s*0\.15rem/);
+  assert.match(css, /\.sqr-settings-section:not\(\[open\]\)\s*>\s*\.sqr-section-toggle[\s\S]*margin-bottom:\s*0/);
 });
 
 test('suggestion buttons use multiline clamping instead of single-line ellipsis', () => {
