@@ -174,9 +174,11 @@ test('loading state hides empty candidates and centers its status', () => {
   assert.match(css, /#sqr-panel \.sqr-panel-status\s*\{[\s\S]*text-align:\s*center/);
 });
 
-test('progression candidates have a visible marker style', () => {
+test('progression candidates style the Lucide marker without a textual arrow', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
-  assert.match(css, /\.sqr-candidate\.sqr-progression::before[\s\S]*content:\s*'↗'/);
+  assert.match(css, /#sqr-panel \.sqr-candidate\.sqr-progression \.sqr-candidate-icon\s*\{[\s\S]*color:\s*var\(--SmartThemeQuoteColor, #75b7ff\)/);
+  assert.match(css, /#sqr-panel \.sqr-candidate\.sqr-progression \.sqr-candidate-icon\s*\{[\s\S]*width:\s*1em/);
+  assert.doesNotMatch(css, /content:\s*'↗'/);
 });
 
 test('drag scheduler keeps only the newest pending point until the frame runs', () => {

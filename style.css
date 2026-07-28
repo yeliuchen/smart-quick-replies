@@ -447,12 +447,13 @@
   white-space: normal;
 }
 
-#sqr-panel .sqr-candidate.sqr-progression::before {
+#sqr-panel .sqr-candidate.sqr-progression .sqr-candidate-icon {
   color: var(--SmartThemeQuoteColor, #75b7ff);
-  content: '↗';
   display: inline-block;
-  font-weight: 700;
+  height: 1em;
   margin-right: 0.35rem;
+  vertical-align: -0.125em;
+  width: 1em;
 }
 
 #sqr-panel .sqr-candidate[hidden] {
