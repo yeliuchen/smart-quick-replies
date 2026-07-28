@@ -220,6 +220,40 @@ test('API keys prefer a Secrets adapter and never enter extension settings', asy
   assert.equal(await readApiKey(context, 'openai'), 'secret-value');
 });
 
+test('API key reads the local fallback when Secrets is present but empty', async () => {
+  const values = new Map([['smart-quick-replies.secret.apiKey.openai', 'fallback-value']]);
+  const context = {
+    getSecret: () => '',
+    storage: {
+      getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+      removeItem: key => values.delete(key),
+    },
+  };
+  assert.equal(await readApiKey(context, 'openai'), 'fallback-value');
+});
+
+test('clearing a Secrets API key removes a stale local fallback', async () => {
+  const values = new Map([['smart-quick-replies.secret.apiKey.openai', 'fallback-value']]);
+  const secrets = new Map();
+  const context = {
+    getSecret: key => secrets.get(key) ?? '',
+    setSecret: (key, value) => secrets.set(key, value),
+    storage: {
+      getItem: key => values.get(key) ?? null,
+      removeItem: key => values.delete(key),
+    },
+  };
+  await writeApiKey(context, 'openai', '');
+  assert.equal(values.has('smart-quick-replies.secret.apiKey.openai'), false);
+});
+
+test('settings bind API key input and blur persistence hooks', () => {
+  const source = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+  assert.match(source, /keyInput\.addEventListener\('input'/);
+  assert.match(source, /keyInput\.addEventListener\('blur'/);
+});
+
 test('runtime settings prefer the latest persisted extension settings', () => {
   const initial = { api: { url: 'http://localhost:1234/v1', model: '' } };
   const persisted = { api: { url: 'http://127.0.0.1:1234/v1', model: 'gemma-4-e4b-it-ud' } };

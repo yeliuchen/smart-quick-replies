@@ -1610,7 +1610,11 @@ export async function readApiKey(context = {}, provider = 'openai') {
   if (adapter?.read) {
     try {
       const value = await adapter.read(key);
-      return typeof value === 'string' ? value : String(value?.value ?? '');
+      const secretValue = typeof value === 'string' ? value : String(value?.value ?? '');
+      // Some ST versions expose the Secrets API even when it has no value yet.
+      // Keep checking the namespaced fallback in that case instead of treating
+      // an empty Secrets response as the final answer.
+      if (secretValue.trim()) return secretValue;
     } catch {
       // Fall back to the namespaced local value when an older Secrets API rejects the key.
     }
@@ -1629,6 +1633,11 @@ export async function writeApiKey(context = {}, provider = 'openai', value = '')
   if (adapter?.write) {
     try {
       await adapter.write(key, safeValue);
+      // Remove an older fallback when the user intentionally clears the key;
+      // otherwise a blank Secrets value would appear to resurrect the old key.
+      if (!safeValue) {
+        try { getStorage(context)?.removeItem?.(key); } catch { /* Ignore unavailable fallback storage. */ }
+      }
       return 'secrets';
     } catch {
       // Use the explicit local fallback only when the Secrets API is unavailable at runtime.
@@ -1734,14 +1743,58 @@ export async function initSettingsUI(context = {}) {
     },
   });
   if (keyInput) {
+    let activeKeyProvider = detectApiType(settings.api.url, settings.api.type, settings.api.autoDetect);
     keyInput.value = loaded.apiKey;
-    const onKeyChange = async () => {
-      const type = detectApiType(settings.api.url, settings.api.type, settings.api.autoDetect);
-      const mode = await writeApiKey(context, type, keyInput.value);
-      updateKeyStatus(mode);
+    let keySaveTimer = null;
+    let keySaveQueue = Promise.resolve();
+    const persistApiKey = (provider = activeKeyProvider) => {
+      const value = keyInput.value;
+      keySaveQueue = keySaveQueue
+        .then(async () => {
+          const mode = await writeApiKey(context, provider, value);
+          updateKeyStatus(mode);
+        })
+        .catch(() => {});
+      return keySaveQueue;
     };
-    keyInput.addEventListener('change', onKeyChange);
-    cleanups.push(() => keyInput.removeEventListener('change', onKeyChange));
+    const scheduleApiKeySave = () => {
+      if (keySaveTimer !== null) clearTimeout(keySaveTimer);
+      keySaveTimer = setTimeout(() => {
+        keySaveTimer = null;
+        void persistApiKey();
+      }, 250);
+    };
+    const flushApiKeySave = () => {
+      if (keySaveTimer !== null) {
+        clearTimeout(keySaveTimer);
+        keySaveTimer = null;
+      }
+      return persistApiKey(activeKeyProvider);
+    };
+    keyInput.addEventListener('input', scheduleApiKeySave);
+    keyInput.addEventListener('change', flushApiKeySave);
+    keyInput.addEventListener('blur', flushApiKeySave);
+    const syncProviderKey = async () => {
+      const nextProvider = detectApiType(settings.api.url, settings.api.type, settings.api.autoDetect);
+      if (nextProvider === activeKeyProvider) return;
+      // Save the value under the provider it belonged to before switching, then
+      // load the provider-specific value so changing API type cannot lose keys.
+      await flushApiKeySave();
+      activeKeyProvider = nextProvider;
+      keyInput.value = await readApiKey(context, activeKeyProvider);
+      updateKeyStatus(getApiKeyStorageMode(context));
+    };
+    const providerControls = ['#sqr-api-type', '#sqr-api-auto-detect', '#sqr-api-url']
+      .map(selector => root.querySelector(selector))
+      .filter(Boolean);
+    for (const control of providerControls) control.addEventListener('change', syncProviderKey);
+    cleanups.push(() => {
+      if (keySaveTimer !== null) clearTimeout(keySaveTimer);
+      keyInput.removeEventListener('input', scheduleApiKeySave);
+      keyInput.removeEventListener('change', flushApiKeySave);
+      keyInput.removeEventListener('blur', flushApiKeySave);
+      for (const control of providerControls) control.removeEventListener('change', syncProviderKey);
+    });
   }
   updateKeyStatus(loaded.keyStorage);
   renderPosition();
