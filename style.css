@@ -45,8 +45,18 @@
   border: 1px solid var(--sqr-border);
   border-radius: 0.55rem;
   background: color-mix(in srgb, var(--sqr-panel) 88%, transparent);
-  margin-top: 0.5rem;
+  margin-top: 0.2rem;
   padding: 0.65rem 0.8rem 0.8rem;
+}
+
+.sqr-settings-section:not([open]) {
+  margin-top: 0.1rem;
+  padding: 0.35rem 0.8rem 0.15rem;
+  padding-bottom: 0.15rem;
+}
+
+.sqr-settings-section:not([open]) > .sqr-section-toggle {
+  margin-bottom: 0;
 }
 
 .sqr-section-toggle-icon {
@@ -232,6 +242,13 @@
   writing-mode: horizontal-tb;
 }
 
+.sqr-position-row #sqr-reset-position {
+  display: inline-flex;
+  min-width: max-content;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+}
+
 .sqr-debug-toolbar {
   align-items: center;
   display: flex;
@@ -260,6 +277,9 @@
 
 .sqr-color-picker-toggle {
   align-items: center;
+  background: #3a3a3f;
+  border: 1px solid var(--sqr-input-border);
+  color: var(--sqr-input-text);
   display: flex;
   gap: 0.5rem;
   justify-content: flex-start;
@@ -288,7 +308,7 @@
 }
 
 .sqr-color-picker-menu {
-  background: var(--sqr-input-background);
+  background: #3a3a3f;
   border: 1px solid var(--sqr-input-border);
   border-radius: 0.4rem;
   box-shadow: 0 0.5rem 1.2rem rgba(0, 0, 0, 0.3);
@@ -422,7 +442,7 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   line-height: 1.35;
-  min-height: 3.35rem;
+  min-height: 0;
   overflow-wrap: anywhere;
   white-space: normal;
 }

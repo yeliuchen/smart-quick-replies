@@ -237,6 +237,38 @@ test('fake-stream models request streaming and aggregate SSE content', async () 
   assert.match(text, /"reply":"d"/);
 });
 
+test('streaming retries a truncated response beyond the 1024-token floor', async () => {
+  const encoder = new TextEncoder();
+  const requests = [];
+  const makeStream = (content, finishReason) => {
+    const chunks = [
+      `data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: finishReason }] })}\n\n`,
+      'data: [DONE]\n\n',
+    ];
+    let index = 0;
+    return { getReader: () => ({ read: async () => index < chunks.length ? { done: false, value: encoder.encode(chunks[index++]) } : { done: true, value: undefined } }) };
+  };
+  const fetchImpl = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    requests.push(body.max_tokens);
+    return {
+      ok: true,
+      status: 200,
+      body: makeStream(
+        requests.length === 1 ? '[{"reply":"a","progression":false},{"reply":"b","progression":false},{"reply":"c","progression":false},{"reply":"' : '[{"reply":"a","progression":false},{"reply":"b","progression":false},{"reply":"c","progression":false},{"reply":"d","progression":false}]',
+        requests.length === 1 ? 'length' : 'stop',
+      ),
+    };
+  };
+  const text = await requestCompletion(
+    { type: 'openai', url: 'https://gateway.example/v1', key: 'secret', model: 'fake-stream-gemini', maxTokens: 1024 },
+    { messages: [] },
+    { fetch: fetchImpl },
+  );
+  assert.match(text, /"reply":"d"/);
+  assert.deepEqual(requests, [1024, 2048]);
+});
+
 test('LM Studio retries an empty response even without reasoning content', async () => {
   let callCount = 0;
   const fetchImpl = async () => {

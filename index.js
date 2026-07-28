@@ -6,6 +6,7 @@ Your role is only to write what {{user}} could send next. You are NOT {{char}}, 
 
 Rules:
 - Generate exactly 4 distinct, short, natural messages that {{user}} can send directly to {{char}}.
+- Keep every reply to one short sentence, preferably under 30 Chinese characters (or 15 words); never exceed 40 Chinese characters (or 20 words).
 - Write from {{user}}'s first-person perspective and address {{char}}.
 - Match the user's demonstrated wording, sentence length, punctuation, directness, and emotional tone from the user style examples.
 - Use the examples only as a style reference; do not copy their subject matter or sentences.
@@ -20,7 +21,7 @@ Rules:
 Reply ONLY with a JSON array of exactly 4 objects, like: [{"reply":"reply1","progression":false},{"reply":"reply2","progression":true},{"reply":"reply3","progression":false},{"reply":"reply4","progression":false}]`;
 
 export const DEFAULT_SETTINGS = Object.freeze({
-  version: 2,
+  version: 4,
   triggerMode: 'auto',
   interruptedAutoGenerate: true,
   dismissAfterSend: true,
@@ -36,7 +37,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     url: 'http://localhost:1234/v1',
     model: '',
     temperature: 0.9,
-    maxTokens: 512,
+    maxTokens: 2048,
     topP: 0.95,
     timeoutMs: 30000,
   },
@@ -97,10 +98,12 @@ export function migrateSettings(saved = {}) {
       && source.systemPrompt.includes('user style examples')
       && (!source.systemPrompt.includes('do not wrap a reply')
         || !source.systemPrompt.includes('scene stagnation')
-        || !source.systemPrompt.includes('Return exactly 4 JSON objects'));
+        || !source.systemPrompt.includes('Return exactly 4 JSON objects')
+        || !source.systemPrompt.includes('30 Chinese characters'));
   if (source.systemPrompt === LEGACY_SYSTEM_PROMPT || usesPreviousDefault) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
-  if (isPlainObject(source.api) && Number(source.api.maxTokens) > 0 && Number(source.api.maxTokens) <= 128) source.api.maxTokens = 512;
-  source.version = 2;
+  if (isPlainObject(source.api) && Number(source.api.maxTokens) > 0 && Number(source.api.maxTokens) <= 128) source.api.maxTokens = 2048;
+  if (isPlainObject(source.api) && Number(source.version ?? 0) < 3 && Number(source.api.maxTokens) === 512) source.api.maxTokens = 2048;
+  source.version = 4;
   return source;
 }
 
@@ -431,7 +434,7 @@ export function buildPromptMessages(systemPrompt, history = { messages: [] }, va
     system: expanded,
     messages: hasHistoryPlaceholder ? [] : historyMessages.filter(message => message?.role !== 'system'),
     responseFormat: 'suggestions',
-    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. If the recent scene has stagnated for about 6 exchanges, make 1 or 2 options gently advance it by one small plausible beat without forcing a resolution. Output ONLY a JSON array of exactly 4 objects with reply and progression fields.',
+    generationInstruction: 'Generate the USER\'s reply to the latest CHARACTER message now. Write only what the USER would send directly to the CHARACTER. Keep each reply to one short sentence, preferably under 30 Chinese characters or 15 words, and never over 40 Chinese characters or 20 words. Do not speak as the CHARACTER, continue the CHARACTER\'s roleplay, add narration, or explain. Do not wrap replies in quotation marks or append labels such as Acting, Draft, Option, or style notes. If the recent scene has stagnated for about 6 exchanges, make 1 or 2 options gently advance it by one small plausible beat without forcing a resolution. Output ONLY a JSON array of exactly 4 objects with reply and progression fields.',
   };
 }
 
@@ -774,7 +777,7 @@ export async function requestCompletion(config = {}, promptData = {}, dependenci
     let payload = await fetchJson(fetchImpl, request.url, request.init, { stream: streaming });
     debug?.({ phase: 'response', attempt: 1, ...debugBase, payload: summarizeProviderPayload(payload, config.type) });
     let attempt = 1;
-  const retryBudgets = getApiType(config) === 'lmstudio' ? [512, 1024] : [256, 512, 1024];
+  const retryBudgets = getApiType(config) === 'lmstudio' ? [512, 1024, 2048] : [256, 512, 1024, 2048, 4096];
   const effectiveMaxTokens = getEffectiveMaxTokens(config);
     for (const retryMaxTokens of retryBudgets) {
       const choice = payload?.choices?.[0];
@@ -1012,13 +1015,22 @@ export function createRequestCoordinator(AbortControllerImpl = globalThis.AbortC
       return active?.id === id;
     },
     cancel() {
+      const cancelled = active;
       if (active?.controller) active.controller.abort();
       active = null;
+      return cancelled;
     },
     finish(id) {
       if (active?.id === id) active = null;
     },
   };
+}
+
+export function resetPanelAfterCancellation(panel, cancelledRequest, hide = false) {
+  if (!cancelledRequest) return false;
+  panel?.setLoading?.(false);
+  if (hide) panel?.hide?.();
+  return true;
 }
 
 export function createDragScheduler(requestFrame, onFrame = null) {
@@ -1350,10 +1362,12 @@ export function createReplyPanelLiquidGlassController(panel, options = {}) {
   return { ensure, dispose, destroy };
 }
 
-const DEFAULT_EVENT_TYPES = Object.freeze({
+export const DEFAULT_EVENT_TYPES = Object.freeze({
   GENERATION_STARTED: 'GENERATION_STARTED',
   GENERATION_STOPPED: 'GENERATION_STOPPED',
+  GENERATION_ENDED: 'GENERATION_ENDED',
   CHARACTER_MESSAGE_RENDERED: 'CHARACTER_MESSAGE_RENDERED',
+  MESSAGE_RECEIVED: 'MESSAGE_RECEIVED',
   MESSAGE_SENT: 'MESSAGE_SENT',
   CHAT_CHANGED: 'CHAT_CHANGED',
   CHAT_DELETED: 'CHAT_DELETED',
@@ -1370,6 +1384,20 @@ export function decideAutoSuggestionTrigger(settings = {}, state = {}) {
   if (settings.triggerMode !== 'auto' || state.generationActive) return null;
   if (state.characterRendered) return { interrupted: false };
   return settings.interruptedAutoGenerate ? { interrupted: true } : null;
+}
+
+export function shouldScheduleAfterMessageReceived(settings = {}, state = {}) {
+  return settings.triggerMode === 'auto' && !state.generationActive && Boolean(state.hasCharacterMessage);
+}
+
+export function shouldShowRequestError(error = {}) {
+  return !(error?.name === 'AbortError' && error?.message !== 'API request timed out');
+}
+
+export function getRequestErrorMessage(error = {}) {
+  if (!shouldShowRequestError(error)) return '';
+  if (error?.name === 'AbortError') return '请求超时，请检查 API 配置或提高超时时间';
+  return error?.message || '生成失败，请检查 API 配置';
 }
 
 export function resolveApiRequestConfig(settings = {}, options = {}) {
@@ -1429,6 +1457,7 @@ export function bootstrap(context = {}) {
     setTimeout: context.setTimeout ?? globalThis.setTimeout,
     clearTimeout: context.clearTimeout ?? globalThis.clearTimeout,
   });
+  const cancelSuggestionRequest = hide => resetPanelAfterCancellation(panel, coordinator.cancel(), hide);
   const cleanups = [];
   let lastRequestInterrupted = false;
   let stoppedTimer = null;
@@ -1569,7 +1598,9 @@ export function bootstrap(context = {}) {
         error: { name: error?.name, message: error?.message, stack: previewDebugText(error?.stack, 2000) },
         rawResponsePreview: previewDebugText(raw, 4000),
       });
-      panel.setError(error?.name === 'AbortError' ? '请求已取消' : error?.message || '生成失败，请检查 API 配置');
+      const errorMessage = getRequestErrorMessage(error);
+      if (!errorMessage) return;
+      panel.setError(errorMessage);
       showPanel();
     } finally {
       coordinator.finish(request.id);
@@ -1578,10 +1609,11 @@ export function bootstrap(context = {}) {
 
   const scheduleAutoSuggestion = interrupted => {
     if (handledStopId === generationId) return;
-    handledStopId = generationId;
     if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
     stoppedTimer = (context.setTimeout ?? globalThis.setTimeout)(() => {
       stoppedTimer = null;
+      if (handledStopId === generationId) return;
+      handledStopId = generationId;
       requestSuggestions(interrupted);
     }, 100);
   };
@@ -1610,8 +1642,7 @@ export function bootstrap(context = {}) {
     generationId += 1;
     handledStopId = -1;
     characterRenderedGenerationId = -1;
-    coordinator.cancel();
-    panel.hide();
+    cancelSuggestionRequest(true);
   });
   eventHandler('CHARACTER_MESSAGE_RENDERED', () => {
     characterRenderedGenerationId = generationId;
@@ -1625,19 +1656,34 @@ export function bootstrap(context = {}) {
   eventHandler('GENERATION_STOPPED', () => {
     generationActive = false;
     const currentSettings = getSettings();
-    const trigger = decideAutoSuggestionTrigger(currentSettings, {
-      generationActive,
-      characterRendered: characterRenderedGenerationId === generationId,
-    });
-    if (!trigger) return;
-    if (trigger.interrupted) {
-      const live = getLiveContext();
-      const last = live.chat?.at?.(-1);
-      if (!last || last.is_user) return;
-    }
-    scheduleAutoSuggestion(trigger.interrupted);
+    if (currentSettings.triggerMode !== 'auto' || !currentSettings.interruptedAutoGenerate) return;
+    const live = getLiveContext();
+    const last = live.chat?.at?.(-1);
+    if (!last || last.is_user) return;
+    scheduleAutoSuggestion(true);
   });
-  for (const name of ['CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_CREATED']) eventHandler(name, () => { coordinator.cancel(); panel.hide(); });
+  eventHandler('GENERATION_ENDED', () => {
+    generationActive = false;
+    const currentSettings = getSettings();
+    if (currentSettings.triggerMode !== 'auto') return;
+    // SillyTavern emits GENERATION_ENDED for normal completion and also briefly
+    // while handling a manual stop. Keep this delayed so GENERATION_STOPPED can
+    // replace it with the interrupted-context path when applicable.
+    scheduleAutoSuggestion(false);
+  });
+  eventHandler('MESSAGE_RECEIVED', () => {
+    const live = getLiveContext();
+    const last = live.chat?.at?.(-1);
+    const currentSettings = getSettings();
+    if (shouldScheduleAfterMessageReceived(currentSettings, {
+      generationActive,
+      hasCharacterMessage: Boolean(last && !last.is_user),
+    })) {
+      characterRenderedGenerationId = generationId;
+      scheduleAutoSuggestion(false);
+    }
+  });
+  for (const name of ['CHAT_CHANGED', 'CHAT_DELETED', 'CHAT_CREATED']) eventHandler(name, () => cancelSuggestionRequest(true));
   eventHandler('MESSAGE_SENT', () => { if (getSettings().dismissAfterSend) panel.hide(); });
 
   const textarea = documentImpl.querySelector('#send_textarea');
@@ -1662,7 +1708,7 @@ export function bootstrap(context = {}) {
   cleanups.push(() => documentImpl.removeEventListener('click', outsideClick, true));
 
   return () => {
-    coordinator.cancel();
+    cancelSuggestionRequest(false);
     if (stoppedTimer !== null) (context.clearTimeout ?? globalThis.clearTimeout)(stoppedTimer);
     cleanups.splice(0).forEach(cleanup => cleanup());
   };
@@ -1705,7 +1751,11 @@ export async function readApiKey(context = {}, provider = 'openai') {
   if (adapter?.read) {
     try {
       const value = await adapter.read(key);
-      return typeof value === 'string' ? value : String(value?.value ?? '');
+      const secretValue = typeof value === 'string' ? value : String(value?.value ?? '');
+      // Some ST versions expose the Secrets API even when it has no value yet.
+      // Keep checking the namespaced fallback in that case instead of treating
+      // an empty Secrets response as the final answer.
+      if (secretValue.trim()) return secretValue;
     } catch {
       // Fall back to the namespaced local value when an older Secrets API rejects the key.
     }
@@ -1724,6 +1774,11 @@ export async function writeApiKey(context = {}, provider = 'openai', value = '')
   if (adapter?.write) {
     try {
       await adapter.write(key, safeValue);
+      // Remove an older fallback when the user intentionally clears the key;
+      // otherwise a blank Secrets value would appear to resurrect the old key.
+      if (!safeValue) {
+        try { getStorage(context)?.removeItem?.(key); } catch { /* Ignore unavailable fallback storage. */ }
+      }
       return 'secrets';
     } catch {
       // Use the explicit local fallback only when the Secrets API is unavailable at runtime.
@@ -1829,14 +1884,58 @@ export async function initSettingsUI(context = {}) {
     },
   });
   if (keyInput) {
+    let activeKeyProvider = detectApiType(settings.api.url, settings.api.type, settings.api.autoDetect);
     keyInput.value = loaded.apiKey;
-    const onKeyChange = async () => {
-      const type = detectApiType(settings.api.url, settings.api.type, settings.api.autoDetect);
-      const mode = await writeApiKey(context, type, keyInput.value);
-      updateKeyStatus(mode);
+    let keySaveTimer = null;
+    let keySaveQueue = Promise.resolve();
+    const persistApiKey = (provider = activeKeyProvider) => {
+      const value = keyInput.value;
+      keySaveQueue = keySaveQueue
+        .then(async () => {
+          const mode = await writeApiKey(context, provider, value);
+          updateKeyStatus(mode);
+        })
+        .catch(() => {});
+      return keySaveQueue;
     };
-    keyInput.addEventListener('change', onKeyChange);
-    cleanups.push(() => keyInput.removeEventListener('change', onKeyChange));
+    const scheduleApiKeySave = () => {
+      if (keySaveTimer !== null) clearTimeout(keySaveTimer);
+      keySaveTimer = setTimeout(() => {
+        keySaveTimer = null;
+        void persistApiKey();
+      }, 250);
+    };
+    const flushApiKeySave = () => {
+      if (keySaveTimer !== null) {
+        clearTimeout(keySaveTimer);
+        keySaveTimer = null;
+      }
+      return persistApiKey(activeKeyProvider);
+    };
+    keyInput.addEventListener('input', scheduleApiKeySave);
+    keyInput.addEventListener('change', flushApiKeySave);
+    keyInput.addEventListener('blur', flushApiKeySave);
+    const syncProviderKey = async () => {
+      const nextProvider = detectApiType(settings.api.url, settings.api.type, settings.api.autoDetect);
+      if (nextProvider === activeKeyProvider) return;
+      // Save the value under the provider it belonged to before switching, then
+      // load the provider-specific value so changing API type cannot lose keys.
+      await flushApiKeySave();
+      activeKeyProvider = nextProvider;
+      keyInput.value = await readApiKey(context, activeKeyProvider);
+      updateKeyStatus(getApiKeyStorageMode(context));
+    };
+    const providerControls = ['#sqr-api-type', '#sqr-api-auto-detect', '#sqr-api-url']
+      .map(selector => root.querySelector(selector))
+      .filter(Boolean);
+    for (const control of providerControls) control.addEventListener('change', syncProviderKey);
+    cleanups.push(() => {
+      if (keySaveTimer !== null) clearTimeout(keySaveTimer);
+      keyInput.removeEventListener('input', scheduleApiKeySave);
+      keyInput.removeEventListener('change', flushApiKeySave);
+      keyInput.removeEventListener('blur', flushApiKeySave);
+      for (const control of providerControls) control.removeEventListener('change', syncProviderKey);
+    });
   }
   updateKeyStatus(loaded.keyStorage);
   renderPosition();

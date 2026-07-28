@@ -10,13 +10,18 @@ import {
   getDefaultPanelPosition,
   createPositionStore,
   createRequestCoordinator,
+  resetPanelAfterCancellation,
   createDragScheduler,
   getApiKeyStorageMode,
   readApiKey,
   writeApiKey,
   resolveRuntimeSettings,
+  DEFAULT_EVENT_TYPES,
   shouldSuggestOnCharacterRendered,
   decideAutoSuggestionTrigger,
+  shouldScheduleAfterMessageReceived,
+  shouldShowRequestError,
+  getRequestErrorMessage,
 } from '../index.js';
 
 test('default settings use automatic trigger, 20 messages, compression, and four candidates', () => {
@@ -24,7 +29,7 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.equal(DEFAULT_SETTINGS.historyLimit, 20);
   assert.equal(DEFAULT_SETTINGS.compression.enabled, true);
   assert.equal(DEFAULT_SETTINGS.compression.threshold, 3000);
-  assert.equal(DEFAULT_SETTINGS.api.maxTokens, 512);
+  assert.equal(DEFAULT_SETTINGS.api.maxTokens, 2048);
   assert.equal(DEFAULT_SETTINGS.api.authMode, 'bearer');
   assert.match(DEFAULT_SYSTEM_PROMPT, /You generate reply suggestions for the USER/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /You are NOT \{\{char\}\}/);
@@ -32,6 +37,13 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.match(DEFAULT_SYSTEM_PROMPT, /user style examples/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /scene stagnation/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /6 consecutive user-character exchanges/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /30 Chinese characters/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /never exceed 40 Chinese characters/);
+});
+
+test('SillyTavern completion uses GENERATION_ENDED separately from manual stop', () => {
+  assert.equal(DEFAULT_EVENT_TYPES.GENERATION_ENDED, 'GENERATION_ENDED');
+  assert.equal(DEFAULT_EVENT_TYPES.GENERATION_STOPPED, 'GENERATION_STOPPED');
 });
 
 test('mergeSettings fills missing nested values without mutating saved settings', () => {
@@ -51,9 +63,15 @@ test('migrateSettings maps the first version keys into the current contract', ()
 });
 
 test('migrateSettings raises the old low token default for suggestion generation', () => {
-  assert.equal(migrateSettings({ api: { maxTokens: 80 } }).api.maxTokens, 512);
-  assert.equal(migrateSettings({ api: { maxTokens: 81 } }).api.maxTokens, 512);
+  assert.equal(migrateSettings({ api: { maxTokens: 80 } }).api.maxTokens, 2048);
+  assert.equal(migrateSettings({ api: { maxTokens: 81 } }).api.maxTokens, 2048);
+  assert.equal(migrateSettings({ version: 2, api: { maxTokens: 512 } }).api.maxTokens, 2048);
   assert.equal(migrateSettings({ api: { maxTokens: 256 } }).api.maxTokens, 256);
+});
+
+test('settings expose 2048 as the default max token value', () => {
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.match(html, /id="sqr-max-tokens"[^>]*max="4096"[^>]*value="2048"/);
 });
 
 test('migrateSettings upgrades the original default prompt to user-perspective rules', () => {
@@ -61,6 +79,14 @@ test('migrateSettings upgrades the original default prompt to user-perspective r
     systemPrompt: 'You are an assistant that helps the user reply to {{char}}. Given the conversation history, generate 4 distinct, short, and in-character replies that {{user}} might say next. Reply ONLY with a JSON array of 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]',
   });
   assert.match(migrated.systemPrompt, /You are NOT \{\{char\}\}/);
+});
+
+test('migrateSettings upgrades older default prompts with the short-reply limit', () => {
+  const migrated = migrateSettings({
+    version: 3,
+    systemPrompt: DEFAULT_SYSTEM_PROMPT.replace(/- Keep every reply very short:[\s\S]*?\n/, ''),
+  });
+  assert.match(migrated.systemPrompt, /30 Chinese characters/);
 });
 
 test('panel position clamps to the viewport with a margin', () => {
@@ -113,6 +139,9 @@ test('settings layout contracts define desktop and narrow-screen toolbar rules',
   assert.match(css, /\.sqr-model-toolbar[\s\S]*display:\s*(?:flex|grid)/);
   assert.match(css, /\.sqr-prompt-toolbar[\s\S]*display:\s*(?:flex|grid)/);
   assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*\.sqr-model-toolbar[\s\S]*grid-template-columns:\s*1fr/);
+  const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+  assert.match(html, /id="sqr-reset-position"[^>]*sqr-horizontal-button/);
+  assert.match(css, /\.sqr-position-row[\s\S]*#sqr-reset-position[\s\S]*writing-mode:\s*horizontal-tb/);
 });
 
 test('settings CSS gives form controls theme-aware colors', () => {
@@ -124,6 +153,11 @@ test('settings CSS gives form controls theme-aware colors', () => {
   assert.match(css, /::placeholder/);
   assert.match(css, /\.sqr-horizontal-button[\s\S]*white-space:\s*nowrap/);
   assert.match(css, /\.sqr-debug-output[\s\S]*white-space:\s*pre-wrap/);
+  assert.match(css, /\.sqr-color-picker-menu\s*\{[\s\S]*background:\s*#3a3a3f/);
+  assert.match(css, /\.sqr-color-picker-toggle\s*\{[\s\S]*background:\s*#3a3a3f[\s\S]*color:/);
+  assert.match(css, /\.sqr-settings-section:not\(\[open\]\)\s*\{[\s\S]*margin-top:\s*0\.1rem[\s\S]*padding:\s*0\.35rem\s+0\.8rem\s+0\.15rem/);
+  assert.match(css, /\.sqr-settings-section:not\(\[open\]\)[\s\S]*padding-bottom:\s*0\.15rem/);
+  assert.match(css, /\.sqr-settings-section:not\(\[open\]\)\s*>\s*\.sqr-section-toggle[\s\S]*margin-bottom:\s*0/);
 });
 
 test('suggestion buttons use multiline clamping instead of single-line ellipsis', () => {
@@ -131,6 +165,7 @@ test('suggestion buttons use multiline clamping instead of single-line ellipsis'
   assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*-webkit-line-clamp:\s*3/);
   assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*white-space:\s*normal/);
   assert.doesNotMatch(css, /#sqr-panel \.sqr-candidate,[\s\S]*text-overflow:\s*ellipsis/);
+  assert.match(css, /#sqr-panel \.sqr-candidate\s*\{[\s\S]*min-height:\s*0/);
 });
 
 test('loading state hides empty candidates and centers its status', () => {
@@ -175,6 +210,18 @@ test('request coordinator reuses an active request instead of duplicating it', (
   assert.equal(coordinator.isCurrent(first.id), false);
 });
 
+test('cancelled suggestion requests clear the loading panel state', () => {
+  const calls = [];
+  const panel = {
+    setLoading: value => calls.push(['loading', value]),
+    hide: () => calls.push(['hide']),
+  };
+  assert.equal(resetPanelAfterCancellation(panel, { id: 1 }, true), true);
+  assert.deepEqual(calls, [['loading', false], ['hide']]);
+  assert.equal(resetPanelAfterCancellation(panel, null, true), false);
+  assert.deepEqual(calls, [['loading', false], ['hide']]);
+});
+
 test('API keys prefer a Secrets adapter and never enter extension settings', async () => {
   const secrets = new Map();
   const context = {
@@ -184,6 +231,40 @@ test('API keys prefer a Secrets adapter and never enter extension settings', asy
   assert.equal(getApiKeyStorageMode(context), 'secrets');
   assert.equal(await writeApiKey(context, 'openai', 'secret-value'), 'secrets');
   assert.equal(await readApiKey(context, 'openai'), 'secret-value');
+});
+
+test('API key reads the local fallback when Secrets is present but empty', async () => {
+  const values = new Map([['smart-quick-replies.secret.apiKey.openai', 'fallback-value']]);
+  const context = {
+    getSecret: () => '',
+    storage: {
+      getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+      removeItem: key => values.delete(key),
+    },
+  };
+  assert.equal(await readApiKey(context, 'openai'), 'fallback-value');
+});
+
+test('clearing a Secrets API key removes a stale local fallback', async () => {
+  const values = new Map([['smart-quick-replies.secret.apiKey.openai', 'fallback-value']]);
+  const secrets = new Map();
+  const context = {
+    getSecret: key => secrets.get(key) ?? '',
+    setSecret: (key, value) => secrets.set(key, value),
+    storage: {
+      getItem: key => values.get(key) ?? null,
+      removeItem: key => values.delete(key),
+    },
+  };
+  await writeApiKey(context, 'openai', '');
+  assert.equal(values.has('smart-quick-replies.secret.apiKey.openai'), false);
+});
+
+test('settings bind API key input and blur persistence hooks', () => {
+  const source = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+  assert.match(source, /keyInput\.addEventListener\('input'/);
+  assert.match(source, /keyInput\.addEventListener\('blur'/);
 });
 
 test('runtime settings prefer the latest persisted extension settings', () => {
@@ -208,4 +289,18 @@ test('auto suggestions trigger after either render-before-stop or stop-only inte
   assert.deepEqual(decideAutoSuggestionTrigger({ triggerMode: 'auto', interruptedAutoGenerate: true }, { generationActive: false, characterRendered: true }), { interrupted: false });
   assert.deepEqual(decideAutoSuggestionTrigger({ triggerMode: 'auto', interruptedAutoGenerate: true }, { generationActive: false, characterRendered: false }), { interrupted: true });
   assert.equal(decideAutoSuggestionTrigger({ triggerMode: 'manual', interruptedAutoGenerate: true }, { generationActive: false, characterRendered: true }), null);
+});
+
+test('message receipt can provide a completed-character auto-trigger fallback', () => {
+  assert.equal(shouldScheduleAfterMessageReceived({ triggerMode: 'auto' }, { generationActive: false, hasCharacterMessage: true }), true);
+  assert.equal(shouldScheduleAfterMessageReceived({ triggerMode: 'auto' }, { generationActive: true, hasCharacterMessage: true }), false);
+  assert.equal(shouldScheduleAfterMessageReceived({ triggerMode: 'manual' }, { generationActive: false, hasCharacterMessage: true }), false);
+});
+
+test('intentional aborts do not become visible request errors', () => {
+  assert.equal(shouldShowRequestError({ name: 'AbortError', message: 'API request was cancelled' }), false);
+  assert.equal(shouldShowRequestError({ name: 'AbortError', message: 'API request timed out' }), true);
+  assert.equal(shouldShowRequestError({ name: 'ProviderHttpError', message: '401' }), true);
+  assert.equal(getRequestErrorMessage({ name: 'AbortError', message: 'API request timed out' }), '请求超时，请检查 API 配置或提高超时时间');
+  assert.equal(getRequestErrorMessage({ name: 'AbortError', message: 'API request was cancelled' }), '');
 });

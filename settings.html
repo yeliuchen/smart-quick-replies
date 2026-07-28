@@ -39,7 +39,7 @@
     </div>
       <div class="sqr-position-row">
       <span>弹出位置：<output id="sqr-position-display">默认位置</output></span>
-      <button id="sqr-reset-position" class="menu_button" type="button">重置弹出位置</button>
+      <button id="sqr-reset-position" class="menu_button sqr-horizontal-button" type="button">重置弹出位置</button>
       </div>
     </div>
   </details>
@@ -103,8 +103,8 @@
         <input id="sqr-temperature" type="range" min="0" max="2" step="0.05" value="0.9" data-sqr-setting="api.temperature">
       </label>
       <label class="sqr-range-field">
-        <span>最大 token <output data-sqr-output="api.maxTokens">512</output></span>
-        <input id="sqr-max-tokens" type="range" min="16" max="1024" step="1" value="512" data-sqr-setting="api.maxTokens">
+        <span>最大 token <output data-sqr-output="api.maxTokens">2048</output></span>
+        <input id="sqr-max-tokens" type="range" min="16" max="4096" step="1" value="2048" data-sqr-setting="api.maxTokens">
       </label>
       <label class="sqr-range-field">
         <span>top_p <output data-sqr-output="api.topP">0.95</output></span>
