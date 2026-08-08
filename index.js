@@ -1187,6 +1187,154 @@ export function createDragScheduler(requestFrame, onFrame = null) {
   };
 }
 
+const segmentGraphemes = value => {
+  const text = String(value ?? '');
+  const Segmenter = globalThis.Intl?.Segmenter;
+  if (typeof Segmenter === 'function') {
+    return [...new Segmenter(undefined, { granularity: 'grapheme' }).segment(text)]
+      .map(entry => entry.segment);
+  }
+  return Array.from(text);
+};
+
+export function getRoundedLineInset(width, height, radius, y) {
+  const safeWidth = Math.max(0, Number(width) || 0);
+  const safeHeight = Math.max(0, Number(height) || 0);
+  if (!safeWidth || !safeHeight) return 0;
+  const safeRadius = Math.min(
+    Math.max(0, Number(radius) || 0),
+    safeWidth / 2,
+    safeHeight / 2,
+  );
+  const centerY = Math.min(safeHeight, Math.max(0, Number(y) || 0));
+  let inset = 0;
+  if (safeRadius && centerY < safeRadius) {
+    const offset = safeRadius - centerY;
+    inset = safeRadius - Math.sqrt(Math.max(0, safeRadius ** 2 - offset ** 2));
+  } else if (safeRadius && centerY > safeHeight - safeRadius) {
+    const offset = centerY - (safeHeight - safeRadius);
+    inset = safeRadius - Math.sqrt(Math.max(0, safeRadius ** 2 - offset ** 2));
+  }
+  return inset;
+}
+
+export function getRoundedLineAvailableWidth(width, height, radius, y, safety = 0) {
+  const safeWidth = Math.max(0, Number(width) || 0);
+  if (!safeWidth || !Number(height)) return 0;
+  const inset = getRoundedLineInset(width, height, radius, y);
+  const safeGutter = Math.max(0, Number(safety) || 0);
+  return Math.max(1, safeWidth - inset * 2 - safeGutter * 2);
+}
+
+const sameLines = (left = [], right = []) => left.length === right.length
+  && left.every((line, index) => line === right[index]);
+
+export function wrapTextToRoundedButton(text, options = {}) {
+  const value = String(text ?? '');
+  if (!value) return { lines: [], lineWidths: [], lineInsets: [], height: 0 };
+
+  const width = Math.max(1, Number(options.width) || 1);
+  const radius = Math.max(0, Number(options.radius) || 0);
+  const lineHeight = Math.max(1, Number(options.lineHeight) || 1);
+  const verticalPadding = Math.max(0, Number(options.verticalPadding) || 0);
+  const safety = Math.max(0, Number(options.safety) || 0);
+  const measure = typeof options.measure === 'function'
+    ? valueToMeasure => Math.max(0, Number(options.measure(valueToMeasure)) || 0)
+    : valueToMeasure => Array.from(String(valueToMeasure)).length;
+  const segments = segmentGraphemes(value);
+  const suppliedHeight = Math.max(0, Number(options.height) || 0);
+
+  const wrapAtHeight = height => {
+    const lines = [];
+    let current = '';
+    const flush = () => {
+      if (current || !lines.length) lines.push(current);
+      current = '';
+    };
+    for (const segment of segments) {
+      if (segment === '\n') {
+        flush();
+        continue;
+      }
+      const lineIndex = lines.length;
+      const lineY = verticalPadding + (lineIndex + 0.5) * lineHeight;
+      const availableWidth = getRoundedLineAvailableWidth(
+        width,
+        height,
+        radius,
+        lineY,
+        safety,
+      );
+      const candidate = `${current}${segment}`;
+      if (!current || measure(candidate) <= availableWidth) current = candidate;
+      else {
+        lines.push(current);
+        current = segment;
+      }
+    }
+    flush();
+    return lines;
+  };
+
+  let height = suppliedHeight || Math.max(lineHeight + verticalPadding * 2, lineHeight * Math.ceil(measure(value) / width) + verticalPadding * 2);
+  let lines = [];
+  const seen = new Set();
+  for (let iteration = 0; iteration < 12; iteration += 1) {
+    const nextLines = wrapAtHeight(height);
+    const contentHeight = nextLines.length * lineHeight + verticalPadding * 2;
+    const nextHeight = Math.max(suppliedHeight, contentHeight);
+    const signature = `${nextHeight}:${nextLines.join('\u0000')}`;
+    if (sameLines(lines, nextLines) || seen.has(signature)) {
+      lines = nextLines;
+      height = nextHeight;
+      break;
+    }
+    seen.add(signature);
+    lines = nextLines;
+    height = nextHeight;
+  }
+
+  const lineWidths = lines.map((_line, index) => getRoundedLineAvailableWidth(
+    width,
+    height,
+    radius,
+    verticalPadding + (index + 0.5) * lineHeight,
+    safety,
+  ));
+  const lineInsets = lines.map((_line, index) => getRoundedLineInset(
+    width,
+    height,
+    radius,
+    verticalPadding + (index + 0.5) * lineHeight,
+  ));
+  return { lines, lineWidths, lineInsets, height };
+}
+
+export function layoutCandidateButtonText(button, options = {}) {
+  const documentImpl = options.document ?? button?.ownerDocument;
+  const textElement = button?.querySelector?.('.sqr-candidate-text');
+  const value = String(options.text ?? button?.dataset?.sqrReply ?? '').trim();
+  if (!textElement || !value || !documentImpl?.createElement) return null;
+  const result = wrapTextToRoundedButton(value, options);
+  const currentLines = [...(textElement.children ?? [])].map(child => String(child.textContent ?? ''));
+  if (!sameLines(currentLines, result.lines)) {
+    textElement.replaceChildren?.();
+    if (!textElement.replaceChildren) textElement.textContent = '';
+    result.lines.forEach((lineText, index) => {
+      const line = documentImpl.createElement('span');
+      line.className = 'sqr-candidate-line';
+      line.textContent = lineText;
+      line.style ??= {};
+      const inset = result.lineInsets[index] ?? 0;
+      line.style.marginInlineStart = `${inset}px`;
+      line.style.marginInlineEnd = `${inset}px`;
+      textElement.append(line);
+    });
+  }
+  textElement.setAttribute?.('aria-label', value);
+  return result;
+}
+
 export function renderCandidateButton(button, item, documentImpl = button?.ownerDocument) {
   let text = button.querySelector?.('.sqr-candidate-text');
   if (!text) {
@@ -1196,7 +1344,19 @@ export function renderCandidateButton(button, item, documentImpl = button?.owner
     button.append(text);
   }
   const value = String(typeof item === 'object' ? item?.text ?? item?.reply ?? '' : item ?? '').trim();
-  text.textContent = value;
+  text.replaceChildren?.();
+  if (!text.replaceChildren) text.textContent = '';
+  if (value) {
+    const line = documentImpl.createElement('span');
+    line.className = 'sqr-candidate-line';
+    line.textContent = value;
+    text.append(line);
+  }
+  button.dataset ??= {};
+  button.dataset.sqrReply = value;
+  text.dataset ??= {};
+  text.dataset.sqrFullText = value;
+  text.setAttribute?.('aria-label', value);
   button.title = value;
   button.hidden = !value;
   return value;
@@ -1264,6 +1424,91 @@ export function createPanel(documentImpl, callbacks = {}) {
   const requestFrame = typeof windowImpl?.requestAnimationFrame === 'function'
     ? windowImpl.requestAnimationFrame.bind(windowImpl)
     : callback => setTimeout(callback, 0);
+  const parseCssNumber = (value, fallback = 0) => {
+    const parsed = Number.parseFloat(String(value ?? ''));
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const getComputedStyleSafe = target => {
+    const getComputedStyleImpl = windowImpl?.getComputedStyle ?? globalThis.getComputedStyle;
+    if (typeof getComputedStyleImpl !== 'function') return {};
+    try {
+      return getComputedStyleImpl.call(windowImpl, target) ?? {};
+    } catch {
+      return {};
+    }
+  };
+  const getCandidateLayoutOptions = button => {
+    const rect = button.getBoundingClientRect?.();
+    if (!rect || !(Number(rect.width) > 0)) return null;
+    const buttonStyle = getComputedStyleSafe(button);
+    const textElement = button.querySelector?.('.sqr-candidate-text');
+    const textStyle = getComputedStyleSafe(textElement);
+    const paddingLeft = parseCssNumber(buttonStyle.paddingLeft);
+    const paddingRight = parseCssNumber(buttonStyle.paddingRight);
+    const paddingTop = parseCssNumber(buttonStyle.paddingTop);
+    const paddingBottom = parseCssNumber(buttonStyle.paddingBottom);
+    const borderLeft = parseCssNumber(buttonStyle.borderLeftWidth);
+    const borderRight = parseCssNumber(buttonStyle.borderRightWidth);
+    const borderTop = parseCssNumber(buttonStyle.borderTopWidth);
+    const borderBottom = parseCssNumber(buttonStyle.borderBottomWidth);
+    const width = Math.max(1, Number(rect.width) - paddingLeft - paddingRight - borderLeft - borderRight);
+    const height = Math.max(0, Number(rect.height) - paddingTop - paddingBottom - borderTop - borderBottom);
+    const fontSize = parseCssNumber(textStyle.fontSize, 16);
+    const rawLineHeight = String(textStyle.lineHeight ?? '');
+    const lineHeight = rawLineHeight === 'normal'
+      ? fontSize * 1.35
+      : Math.max(1, parseCssNumber(rawLineHeight, fontSize * 1.35));
+    const outerRadius = parseCssNumber(
+      buttonStyle.borderTopLeftRadius ?? buttonStyle.borderRadius,
+      0,
+    );
+    const radius = Math.max(0, outerRadius - Math.max(paddingLeft, paddingTop));
+    const canvas = documentImpl.createElement?.('canvas');
+    let context2d = null;
+    try {
+      context2d = canvas?.getContext?.('2d') ?? null;
+      if (context2d) {
+        context2d.font = textStyle.font || `${textStyle.fontWeight || ''} ${fontSize}px ${textStyle.fontFamily || 'sans-serif'}`;
+      }
+    } catch {
+      context2d = null;
+    }
+    return {
+      document: documentImpl,
+      width,
+      height,
+      radius,
+      lineHeight,
+      safety: 4,
+      measure: value => context2d
+        ? context2d.measureText(String(value)).width
+        : Array.from(String(value)).length * fontSize,
+    };
+  };
+  let destroyed = false;
+  let layoutQueued = false;
+  const layoutCandidates = () => {
+    if (destroyed || element.hidden) return;
+    buttons.filter(button => !button.hidden).forEach(button => {
+      const options = getCandidateLayoutOptions(button);
+      if (options) layoutCandidateButtonText(button, options);
+    });
+  };
+  const queueCandidateLayout = () => {
+    if (destroyed || layoutQueued) return;
+    layoutQueued = true;
+    requestFrame(() => {
+      layoutQueued = false;
+      layoutCandidates();
+    });
+  };
+  const ResizeObserverImpl = windowImpl?.ResizeObserver ?? globalThis.ResizeObserver;
+  const resizeObserver = typeof ResizeObserverImpl === 'function'
+    ? new ResizeObserverImpl(() => queueCandidateLayout())
+    : null;
+  resizeObserver?.observe?.(element);
+  const onWindowResize = () => queueCandidateLayout();
+  windowImpl?.addEventListener?.('resize', onWindowResize);
 
   const hide = () => {
     element.hidden = true;
@@ -1274,6 +1519,7 @@ export function createPanel(documentImpl, callbacks = {}) {
     if (options?.position) setPosition(options.position);
     element.hidden = false;
     element.style.display = 'flex';
+    queueCandidateLayout();
     callbacks.onVisibilityChange?.(true);
   };
   const setPosition = next => {
@@ -1305,6 +1551,7 @@ export function createPanel(documentImpl, callbacks = {}) {
     status.hidden = true;
     status.className = 'sqr-panel-status';
     status.textContent = '';
+    queueCandidateLayout();
   };
   const setLoading = loading => {
     element.classList.toggle('sqr-loading', Boolean(loading));
@@ -1329,7 +1576,7 @@ export function createPanel(documentImpl, callbacks = {}) {
   };
 
   buttons.forEach(button => listen(button, 'click', () => {
-    const value = button.querySelector('.sqr-candidate-text')?.textContent.trim() ?? '';
+    const value = String(button.dataset?.sqrReply ?? button.querySelector('.sqr-candidate-text')?.textContent ?? '').trim();
     if (!value) return;
     const input = documentImpl.querySelector('#send_textarea');
     if (input) {
@@ -1404,10 +1651,14 @@ export function createPanel(documentImpl, callbacks = {}) {
     getPosition: () => position,
     isVisible: () => !element.hidden,
     destroy() {
+      destroyed = true;
+      resizeObserver?.disconnect?.();
+      windowImpl?.removeEventListener?.('resize', onWindowResize);
       endDrag();
       listeners.splice(0).forEach(remove => remove());
       element.remove?.();
     },
+    relayout: queueCandidateLayout,
   };
 }
 

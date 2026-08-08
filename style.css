@@ -471,15 +471,19 @@
 
 #sqr-panel .sqr-candidate-text {
   align-self: center;
-  display: -webkit-box;
+  display: flex;
   flex: 1 1 auto;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  flex-direction: column;
   line-height: 1.35;
   min-width: 0;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  white-space: normal;
+  text-align: left;
+}
+
+#sqr-panel .sqr-candidate-line {
+  display: block;
+  line-height: inherit;
+  min-height: 1.35em;
+  white-space: pre;
 }
 
 #sqr-panel .sqr-candidate[hidden] {

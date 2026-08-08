@@ -184,7 +184,7 @@ test('settings CSS gives form controls theme-aware colors', () => {
   assert.match(css, /\.sqr-settings-section:not\(\[open\]\)\s*>\s*\.sqr-section-toggle[\s\S]*margin-bottom:\s*0/);
 });
 
-test('suggestion buttons use multiline clamping instead of single-line ellipsis', () => {
+test('suggestion buttons use rounded-boundary multiline layout instead of truncation', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   const candidateRule = css.match(/#sqr-panel \.sqr-candidate\s*\{([^}]*)\}/)?.[1] ?? '';
   const textRule = css.match(/#sqr-panel \.sqr-candidate-text\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -192,13 +192,10 @@ test('suggestion buttons use multiline clamping instead of single-line ellipsis'
   assert.match(candidateRule, /display:\s*flex/);
   assert.doesNotMatch(candidateRule, /-webkit-box|-webkit-line-clamp|white-space|overflow-wrap/);
   assert.match(candidateRule, /min-height:\s*0/);
-  assert.match(textRule, /display:\s*-webkit-box/);
-  assert.match(textRule, /-webkit-box-orient:\s*vertical/);
-  assert.match(textRule, /-webkit-line-clamp:\s*3/);
-  assert.match(textRule, /overflow:\s*hidden/);
-  assert.match(textRule, /overflow-wrap:\s*anywhere/);
-  assert.match(textRule, /white-space:\s*normal/);
-  assert.doesNotMatch(textRule, /text-overflow:\s*ellipsis/);
+  assert.match(textRule, /display:\s*flex/);
+  assert.match(textRule, /flex-direction:\s*column/);
+  assert.match(css, /#sqr-panel \.sqr-candidate-line\s*\{[\s\S]*display:\s*block/);
+  assert.doesNotMatch(textRule, /-webkit-line-clamp|text-overflow/);
 });
 
 test('candidate text uses the theme accent and stays inside stretched buttons', () => {
