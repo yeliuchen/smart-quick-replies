@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import {
   DEFAULT_SETTINGS,
   DEFAULT_SYSTEM_PROMPT,
+  PREVIOUS_DEFAULT_SYSTEM_PROMPT,
   mergeSettings,
   migrateSettings,
   clampPosition,
@@ -37,7 +38,8 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.match(DEFAULT_SYSTEM_PROMPT, /You generate reply suggestions for the USER/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /You are NOT \{\{char\}\}/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /exactly 4 distinct/);
-  assert.match(DEFAULT_SYSTEM_PROMPT, /user style examples/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Style examples are references only/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Branch Diversity/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /30 Chinese characters/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /never exceed 40 Chinese characters/);
 });
@@ -88,12 +90,10 @@ test('migrateSettings upgrades the original default prompt to user-perspective r
   assert.match(migrated.systemPrompt, /You are NOT \{\{char\}\}/);
 });
 
-test('migrateSettings upgrades older default prompts with the short-reply limit', () => {
-  const migrated = migrateSettings({
-    version: 3,
-    systemPrompt: DEFAULT_SYSTEM_PROMPT.replace(/- Keep every reply very short:[\s\S]*?\n/, ''),
-  });
-  assert.match(migrated.systemPrompt, /30 Chinese characters/);
+test('migrateSettings upgrades the previous default prompt to the branch-diversity rules', () => {
+  const migrated = migrateSettings({ version: 4, systemPrompt: PREVIOUS_DEFAULT_SYSTEM_PROMPT });
+  assert.match(migrated.systemPrompt, /Branch Diversity/);
+  assert.doesNotMatch(migrated.systemPrompt, /user style examples/);
 });
 
 test('panel position clamps to the viewport with a margin', () => {
