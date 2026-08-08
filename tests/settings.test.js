@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import {
   DEFAULT_SETTINGS,
   DEFAULT_SYSTEM_PROMPT,
-  PREVIOUS_DEFAULT_SYSTEM_PROMPT,
+  DEFAULT_SYSTEM_PROMPT_V1,
+  DEFAULT_SYSTEM_PROMPT_V2,
   mergeSettings,
   migrateSettings,
   clampPosition,
@@ -38,7 +39,7 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.match(DEFAULT_SYSTEM_PROMPT, /You generate reply suggestions for the USER/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /You are NOT \{\{char\}\}/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /exactly 4 distinct/);
-  assert.match(DEFAULT_SYSTEM_PROMPT, /Style examples are references only/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /The branch roles are priorities/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /Branch Diversity/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /30 Chinese characters/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /never exceed 40 Chinese characters/);
@@ -90,10 +91,11 @@ test('migrateSettings upgrades the original default prompt to user-perspective r
   assert.match(migrated.systemPrompt, /You are NOT \{\{char\}\}/);
 });
 
-test('migrateSettings upgrades the previous default prompt to the branch-diversity rules', () => {
-  const migrated = migrateSettings({ version: 4, systemPrompt: PREVIOUS_DEFAULT_SYSTEM_PROMPT });
-  assert.match(migrated.systemPrompt, /Branch Diversity/);
-  assert.doesNotMatch(migrated.systemPrompt, /user style examples/);
+test('migrateSettings upgrades every previous default prompt to the newest rules', () => {
+  for (const previous of [DEFAULT_SYSTEM_PROMPT_V1, DEFAULT_SYSTEM_PROMPT_V2]) {
+    const migrated = migrateSettings({ version: 4, systemPrompt: previous });
+    assert.equal(migrated.systemPrompt, DEFAULT_SYSTEM_PROMPT);
+  }
 });
 
 test('panel position clamps to the viewport with a margin', () => {
