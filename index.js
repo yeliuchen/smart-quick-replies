@@ -2,7 +2,7 @@ import { createLucideIcon, hydrateLucideIcons } from './icons.js';
 
 const LEGACY_SYSTEM_PROMPT = 'You are an assistant that helps the user reply to {{char}}. Given the conversation history, generate 4 distinct, short, and in-character replies that {{user}} might say next. Reply ONLY with a JSON array of 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]';
 
-export const DEFAULT_SYSTEM_PROMPT = `You generate reply suggestions for the USER, who is replying to the CHARACTER {{char}}.
+export const DEFAULT_SYSTEM_PROMPT_V1 = `You generate reply suggestions for the USER, who is replying to the CHARACTER {{char}}.
 
 Your role is only to write what {{user}} could send next. You are NOT {{char}}, and you must never answer as {{char}}.
 
@@ -19,6 +19,113 @@ Rules:
 - Treat the latest character message as the message the user needs to answer.
 
 Reply ONLY with a JSON array of exactly 4 strings, like: ["reply1", "reply2", "reply3", "reply4"]`;
+
+export const DEFAULT_SYSTEM_PROMPT_V2 = `You generate reply suggestions for the USER replying to the CHARACTER {{char}}.
+Write only what {{user}} could send next. You are NOT {{char}} and must never speak, think, act, or narrate as {{char}}.
+
+## Context & Consistency
+
+* Reply primarily to {{char}}'s latest message, while using recent conversation context to understand events, relationships, emotions, and what each person knows.
+* Follow {{user}}'s established persona, identity, personality, preferences, knowledge, behavior, and conversational habits.
+* Match {{user}}'s wording, sentence length, punctuation, directness, and emotional tone. Style examples are references only; never copy their content.
+* Preserve established relationship distance, forms of address, nicknames, honorifics, politeness, familiarity, and speech register.
+* Preserve {{user}}'s current emotional state and approximate intensity. Do not suddenly escalate intimacy, affection, hostility, fear, jealousy, sadness, trust, dominance, submission, formality, or distance without contextual support.
+* Prefer established facts over assumptions. Never invent facts, memories, knowledge, relationships, events, promises, motives, preferences, possessions, abilities, or past experiences.
+* Never imply {{user}} knows something not established in context.
+
+## User Agency
+
+* Do not decide {{user}}'s hidden feelings, beliefs, intentions, plans, or future actions.
+* Do not make major decisions, commitments, promises, confessions, agreements, refusals, relationship changes, or irreversible choices unless clearly established or strongly implied.
+* If an important choice is unclear, prefer reacting, questioning, hesitating, deferring, or seeking clarification.
+
+## Branch Diversity
+
+* Generate exactly 4 replies as 4 genuinely different conversation branches, not paraphrases.
+* Each reply should plausibly lead {{char}} toward a noticeably different next response or direction.
+* When context allows, use these 4 branch roles:
+
+  1. **Advance** — deepen or move the current topic forward.
+  2. **Probe** — ask, verify, or invite {{char}} to reveal more.
+  3. **Negative** — show resistance, doubt, annoyance, disagreement, rejection, distrust, or emotional distance appropriate to the context.
+  4. **New Direction** — redirect toward another contextually plausible angle or development.
+* The Negative branch should be meaningfully less cooperative than the others, but must remain consistent with {{user}}'s persona and current emotional intensity.
+* Do not make the Negative branch excessively hostile, cruel, dramatic, or relationship-ending unless the context strongly supports it.
+* No two replies may express essentially the same intention or lead to the same likely conversational outcome.
+* Different wording, synonyms, punctuation, or tone alone do not count as diversity.
+* Internally replace any two replies that are too similar.
+
+
+## Reply Rules
+
+* Each reply must be one short, natural sentence {{user}} could directly send to {{char}}.
+* Prefer under 30 Chinese characters or 15 English words; never exceed 40 Chinese characters or 20 English words.
+* Write from {{user}}'s first-person perspective and address {{char}} naturally.
+* Do not make all 4 replies questions unless clearly required; normally at most 2 should end as questions.
+* Never continue {{char}}'s dialogue, thoughts, actions, narration, or roleplay.
+* Never output actions, stage directions, third-person narration, internal monologue, labels, explanations, or analysis.
+
+## Output
+
+* Return exactly one valid JSON array containing exactly 4 distinct strings.
+* Output nothing outside the JSON array: no Markdown, code fences, labels, comments, or explanations.
+* The entire response must be valid parseable JSON.
+
+Example:
+["reply1", "reply2", "reply3", "reply4"]`;
+
+export const DEFAULT_SYSTEM_PROMPT = `You generate reply suggestions for the USER replying to the CHARACTER {{char}}.
+Write only what {{user}} could send next. You are NOT {{char}} and must never speak, think, act, or narrate as {{char}}.
+
+## Context
+
+- Reply mainly to {{char}}'s latest message, but use recent conversation context to understand events, relationships, emotions, and what each person knows.
+- Follow {{user}}'s established persona, personality, preferences, knowledge, behavior, and speaking habits.
+- Match {{user}}'s wording, sentence length, punctuation, directness, and emotional tone.
+- Preserve established relationship distance, forms of address, nicknames, politeness, familiarity, and emotional intensity.
+- Never invent facts, memories, relationships, knowledge, events, motives, promises, abilities, or past experiences.
+- Never imply {{user}} knows something not established in context.
+
+## User Agency
+
+- Do not decide {{user}}'s hidden feelings, beliefs, intentions, plans, or future actions.
+- Do not make major decisions, promises, confessions, commitments, relationship changes, or irreversible choices unless clearly established or strongly implied.
+- If {{user}}'s position is unclear, prefer reacting, questioning, hesitating, or deferring.
+
+## Branch Diversity
+
+Generate exactly 4 replies representing 4 clearly different conversation branches:
+
+1. **Advance** — cooperate, respond positively, or move the current interaction forward.
+2. **Probe** — ask, verify, tease out information, or make {{char}} reveal more.
+3. **Negative** — resist, disagree, doubt, complain, reject, distrust, or create appropriate emotional distance.
+4. **Redirect** — shift toward a different but contextually relevant topic, angle, or development.
+
+- The 4 replies must differ in conversational purpose, not merely wording or tone.
+- Each reply should make a noticeably different next response from {{char}} likely.
+- Do not let two replies focus on the same core point or express essentially the same stance.
+- If two replies would likely lead to a similar next scene, rewrite one.
+- The Negative branch must be clearly less cooperative, but not excessively hostile or dramatic unless the context supports it.
+- Do not create diversity by inventing information, contradicting {{user}}'s persona, or introducing unrelated topics.
+- The branch roles are priorities; adapt naturally when the context makes one impossible.
+
+## Reply Rules
+
+- Each reply must be one short, natural sentence {{user}} could directly send to {{char}}.
+- Prefer under 30 Chinese characters or 15 English words; never exceed 40 Chinese characters or 20 English words.
+- Write from {{user}}'s first-person perspective.
+- Normally no more than 2 replies should be questions.
+- Never continue {{char}}'s dialogue, thoughts, actions, narration, or roleplay.
+- Never output actions, stage directions, third-person narration, internal monologue, labels, explanations, or analysis.
+
+## Output
+
+- Return exactly one valid JSON array containing exactly 4 distinct strings.
+- Output nothing outside the JSON array.
+- The entire response must be valid parseable JSON.
+
+Example:
+["reply1", "reply2", "reply3", "reply4"]`;
 
 export const DEFAULT_SETTINGS = Object.freeze({
   version: 4,
@@ -99,7 +206,7 @@ export function migrateSettings(saved = {}) {
       && (!source.systemPrompt.includes('do not wrap a reply')
         || !source.systemPrompt.includes('Return exactly 4 distinct JSON strings')
         || !source.systemPrompt.includes('30 Chinese characters'));
-  if (source.systemPrompt === LEGACY_SYSTEM_PROMPT || usesPreviousDefault) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
+  if (source.systemPrompt === LEGACY_SYSTEM_PROMPT || source.systemPrompt === DEFAULT_SYSTEM_PROMPT_V1 || source.systemPrompt === DEFAULT_SYSTEM_PROMPT_V2 || usesPreviousDefault) source.systemPrompt = DEFAULT_SYSTEM_PROMPT;
   if (isPlainObject(source.api) && Number(source.api.maxTokens) > 0 && Number(source.api.maxTokens) <= 128) source.api.maxTokens = 2048;
   if (isPlainObject(source.api) && Number(source.version ?? 0) < 3 && Number(source.api.maxTokens) === 512) source.api.maxTokens = 2048;
   if (isPlainObject(source.api) && Number(source.version ?? 0) < 5 && Number(source.api.timeoutMs) === 30000) source.api.timeoutMs = 120000;
@@ -1080,6 +1187,154 @@ export function createDragScheduler(requestFrame, onFrame = null) {
   };
 }
 
+const segmentGraphemes = value => {
+  const text = String(value ?? '');
+  const Segmenter = globalThis.Intl?.Segmenter;
+  if (typeof Segmenter === 'function') {
+    return [...new Segmenter(undefined, { granularity: 'grapheme' }).segment(text)]
+      .map(entry => entry.segment);
+  }
+  return Array.from(text);
+};
+
+export function getRoundedLineInset(width, height, radius, y) {
+  const safeWidth = Math.max(0, Number(width) || 0);
+  const safeHeight = Math.max(0, Number(height) || 0);
+  if (!safeWidth || !safeHeight) return 0;
+  const safeRadius = Math.min(
+    Math.max(0, Number(radius) || 0),
+    safeWidth / 2,
+    safeHeight / 2,
+  );
+  const centerY = Math.min(safeHeight, Math.max(0, Number(y) || 0));
+  let inset = 0;
+  if (safeRadius && centerY < safeRadius) {
+    const offset = safeRadius - centerY;
+    inset = safeRadius - Math.sqrt(Math.max(0, safeRadius ** 2 - offset ** 2));
+  } else if (safeRadius && centerY > safeHeight - safeRadius) {
+    const offset = centerY - (safeHeight - safeRadius);
+    inset = safeRadius - Math.sqrt(Math.max(0, safeRadius ** 2 - offset ** 2));
+  }
+  return inset;
+}
+
+export function getRoundedLineAvailableWidth(width, height, radius, y, safety = 0) {
+  const safeWidth = Math.max(0, Number(width) || 0);
+  if (!safeWidth || !Number(height)) return 0;
+  const inset = getRoundedLineInset(width, height, radius, y);
+  const safeGutter = Math.max(0, Number(safety) || 0);
+  return Math.max(1, safeWidth - inset * 2 - safeGutter * 2);
+}
+
+const sameLines = (left = [], right = []) => left.length === right.length
+  && left.every((line, index) => line === right[index]);
+
+export function wrapTextToRoundedButton(text, options = {}) {
+  const value = String(text ?? '');
+  if (!value) return { lines: [], lineWidths: [], lineInsets: [], height: 0 };
+
+  const width = Math.max(1, Number(options.width) || 1);
+  const radius = Math.max(0, Number(options.radius) || 0);
+  const lineHeight = Math.max(1, Number(options.lineHeight) || 1);
+  const verticalPadding = Math.max(0, Number(options.verticalPadding) || 0);
+  const safety = Math.max(0, Number(options.safety) || 0);
+  const measure = typeof options.measure === 'function'
+    ? valueToMeasure => Math.max(0, Number(options.measure(valueToMeasure)) || 0)
+    : valueToMeasure => Array.from(String(valueToMeasure)).length;
+  const segments = segmentGraphemes(value);
+  const suppliedHeight = Math.max(0, Number(options.height) || 0);
+
+  const wrapAtHeight = height => {
+    const lines = [];
+    let current = '';
+    const flush = () => {
+      if (current || !lines.length) lines.push(current);
+      current = '';
+    };
+    for (const segment of segments) {
+      if (segment === '\n') {
+        flush();
+        continue;
+      }
+      const lineIndex = lines.length;
+      const lineY = verticalPadding + (lineIndex + 0.5) * lineHeight;
+      const availableWidth = getRoundedLineAvailableWidth(
+        width,
+        height,
+        radius,
+        lineY,
+        safety,
+      );
+      const candidate = `${current}${segment}`;
+      if (!current || measure(candidate) <= availableWidth) current = candidate;
+      else {
+        lines.push(current);
+        current = segment;
+      }
+    }
+    flush();
+    return lines;
+  };
+
+  let height = suppliedHeight || Math.max(lineHeight + verticalPadding * 2, lineHeight * Math.ceil(measure(value) / width) + verticalPadding * 2);
+  let lines = [];
+  const seen = new Set();
+  for (let iteration = 0; iteration < 12; iteration += 1) {
+    const nextLines = wrapAtHeight(height);
+    const contentHeight = nextLines.length * lineHeight + verticalPadding * 2;
+    const nextHeight = Math.max(suppliedHeight, contentHeight);
+    const signature = `${nextHeight}:${nextLines.join('\u0000')}`;
+    if (sameLines(lines, nextLines) || seen.has(signature)) {
+      lines = nextLines;
+      height = nextHeight;
+      break;
+    }
+    seen.add(signature);
+    lines = nextLines;
+    height = nextHeight;
+  }
+
+  const lineWidths = lines.map((_line, index) => getRoundedLineAvailableWidth(
+    width,
+    height,
+    radius,
+    verticalPadding + (index + 0.5) * lineHeight,
+    safety,
+  ));
+  const lineInsets = lines.map((_line, index) => getRoundedLineInset(
+    width,
+    height,
+    radius,
+    verticalPadding + (index + 0.5) * lineHeight,
+  ));
+  return { lines, lineWidths, lineInsets, height };
+}
+
+export function layoutCandidateButtonText(button, options = {}) {
+  const documentImpl = options.document ?? button?.ownerDocument;
+  const textElement = button?.querySelector?.('.sqr-candidate-text');
+  const value = String(options.text ?? button?.dataset?.sqrReply ?? '').trim();
+  if (!textElement || !value || !documentImpl?.createElement) return null;
+  const result = wrapTextToRoundedButton(value, options);
+  const currentLines = [...(textElement.children ?? [])].map(child => String(child.textContent ?? ''));
+  if (!sameLines(currentLines, result.lines)) {
+    textElement.replaceChildren?.();
+    if (!textElement.replaceChildren) textElement.textContent = '';
+    result.lines.forEach((lineText, index) => {
+      const line = documentImpl.createElement('span');
+      line.className = 'sqr-candidate-line';
+      line.textContent = lineText;
+      line.style ??= {};
+      const inset = result.lineInsets[index] ?? 0;
+      line.style.marginInlineStart = `${inset}px`;
+      line.style.marginInlineEnd = `${inset}px`;
+      textElement.append(line);
+    });
+  }
+  textElement.setAttribute?.('aria-label', value);
+  return result;
+}
+
 export function renderCandidateButton(button, item, documentImpl = button?.ownerDocument) {
   let text = button.querySelector?.('.sqr-candidate-text');
   if (!text) {
@@ -1089,7 +1344,19 @@ export function renderCandidateButton(button, item, documentImpl = button?.owner
     button.append(text);
   }
   const value = String(typeof item === 'object' ? item?.text ?? item?.reply ?? '' : item ?? '').trim();
-  text.textContent = value;
+  text.replaceChildren?.();
+  if (!text.replaceChildren) text.textContent = '';
+  if (value) {
+    const line = documentImpl.createElement('span');
+    line.className = 'sqr-candidate-line';
+    line.textContent = value;
+    text.append(line);
+  }
+  button.dataset ??= {};
+  button.dataset.sqrReply = value;
+  text.dataset ??= {};
+  text.dataset.sqrFullText = value;
+  text.setAttribute?.('aria-label', value);
   button.title = value;
   button.hidden = !value;
   return value;
@@ -1157,6 +1424,91 @@ export function createPanel(documentImpl, callbacks = {}) {
   const requestFrame = typeof windowImpl?.requestAnimationFrame === 'function'
     ? windowImpl.requestAnimationFrame.bind(windowImpl)
     : callback => setTimeout(callback, 0);
+  const parseCssNumber = (value, fallback = 0) => {
+    const parsed = Number.parseFloat(String(value ?? ''));
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const getComputedStyleSafe = target => {
+    const getComputedStyleImpl = windowImpl?.getComputedStyle ?? globalThis.getComputedStyle;
+    if (typeof getComputedStyleImpl !== 'function') return {};
+    try {
+      return getComputedStyleImpl.call(windowImpl, target) ?? {};
+    } catch {
+      return {};
+    }
+  };
+  const getCandidateLayoutOptions = button => {
+    const rect = button.getBoundingClientRect?.();
+    if (!rect || !(Number(rect.width) > 0)) return null;
+    const buttonStyle = getComputedStyleSafe(button);
+    const textElement = button.querySelector?.('.sqr-candidate-text');
+    const textStyle = getComputedStyleSafe(textElement);
+    const paddingLeft = parseCssNumber(buttonStyle.paddingLeft);
+    const paddingRight = parseCssNumber(buttonStyle.paddingRight);
+    const paddingTop = parseCssNumber(buttonStyle.paddingTop);
+    const paddingBottom = parseCssNumber(buttonStyle.paddingBottom);
+    const borderLeft = parseCssNumber(buttonStyle.borderLeftWidth);
+    const borderRight = parseCssNumber(buttonStyle.borderRightWidth);
+    const borderTop = parseCssNumber(buttonStyle.borderTopWidth);
+    const borderBottom = parseCssNumber(buttonStyle.borderBottomWidth);
+    const width = Math.max(1, Number(rect.width) - paddingLeft - paddingRight - borderLeft - borderRight);
+    const height = Math.max(0, Number(rect.height) - paddingTop - paddingBottom - borderTop - borderBottom);
+    const fontSize = parseCssNumber(textStyle.fontSize, 16);
+    const rawLineHeight = String(textStyle.lineHeight ?? '');
+    const lineHeight = rawLineHeight === 'normal'
+      ? fontSize * 1.35
+      : Math.max(1, parseCssNumber(rawLineHeight, fontSize * 1.35));
+    const outerRadius = parseCssNumber(
+      buttonStyle.borderTopLeftRadius ?? buttonStyle.borderRadius,
+      0,
+    );
+    const radius = Math.max(0, outerRadius - Math.max(paddingLeft, paddingTop));
+    const canvas = documentImpl.createElement?.('canvas');
+    let context2d = null;
+    try {
+      context2d = canvas?.getContext?.('2d') ?? null;
+      if (context2d) {
+        context2d.font = textStyle.font || `${textStyle.fontWeight || ''} ${fontSize}px ${textStyle.fontFamily || 'sans-serif'}`;
+      }
+    } catch {
+      context2d = null;
+    }
+    return {
+      document: documentImpl,
+      width,
+      height,
+      radius,
+      lineHeight,
+      safety: 4,
+      measure: value => context2d
+        ? context2d.measureText(String(value)).width
+        : Array.from(String(value)).length * fontSize,
+    };
+  };
+  let destroyed = false;
+  let layoutQueued = false;
+  const layoutCandidates = () => {
+    if (destroyed || element.hidden) return;
+    buttons.filter(button => !button.hidden).forEach(button => {
+      const options = getCandidateLayoutOptions(button);
+      if (options) layoutCandidateButtonText(button, options);
+    });
+  };
+  const queueCandidateLayout = () => {
+    if (destroyed || layoutQueued) return;
+    layoutQueued = true;
+    requestFrame(() => {
+      layoutQueued = false;
+      layoutCandidates();
+    });
+  };
+  const ResizeObserverImpl = windowImpl?.ResizeObserver ?? globalThis.ResizeObserver;
+  const resizeObserver = typeof ResizeObserverImpl === 'function'
+    ? new ResizeObserverImpl(() => queueCandidateLayout())
+    : null;
+  resizeObserver?.observe?.(element);
+  const onWindowResize = () => queueCandidateLayout();
+  windowImpl?.addEventListener?.('resize', onWindowResize);
 
   const hide = () => {
     element.hidden = true;
@@ -1167,6 +1519,7 @@ export function createPanel(documentImpl, callbacks = {}) {
     if (options?.position) setPosition(options.position);
     element.hidden = false;
     element.style.display = 'flex';
+    queueCandidateLayout();
     callbacks.onVisibilityChange?.(true);
   };
   const setPosition = next => {
@@ -1198,6 +1551,7 @@ export function createPanel(documentImpl, callbacks = {}) {
     status.hidden = true;
     status.className = 'sqr-panel-status';
     status.textContent = '';
+    queueCandidateLayout();
   };
   const setLoading = loading => {
     element.classList.toggle('sqr-loading', Boolean(loading));
@@ -1222,7 +1576,7 @@ export function createPanel(documentImpl, callbacks = {}) {
   };
 
   buttons.forEach(button => listen(button, 'click', () => {
-    const value = button.querySelector('.sqr-candidate-text')?.textContent.trim() ?? '';
+    const value = String(button.dataset?.sqrReply ?? button.querySelector('.sqr-candidate-text')?.textContent ?? '').trim();
     if (!value) return;
     const input = documentImpl.querySelector('#send_textarea');
     if (input) {
@@ -1297,10 +1651,14 @@ export function createPanel(documentImpl, callbacks = {}) {
     getPosition: () => position,
     isVisible: () => !element.hidden,
     destroy() {
+      destroyed = true;
+      resizeObserver?.disconnect?.();
+      windowImpl?.removeEventListener?.('resize', onWindowResize);
       endDrag();
       listeners.splice(0).forEach(remove => remove());
       element.remove?.();
     },
+    relayout: queueCandidateLayout,
   };
 }
 
