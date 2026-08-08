@@ -505,7 +505,10 @@
 }
 
 #sqr-panel .sqr-refresh {
+  align-items: center;
+  display: flex;
   flex: 0 0 auto;
+  justify-content: center;
   min-width: 2.2rem;
   text-align: center;
 }

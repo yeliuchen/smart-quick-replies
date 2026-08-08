@@ -219,6 +219,14 @@ test('loading state hides empty candidates and centers its status', () => {
   assert.match(css, /#sqr-panel \.sqr-panel-status\s*\{[\s\S]*text-align:\s*center/);
 });
 
+test('refresh button centers its icon in both axes', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  const refreshRule = css.match(/#sqr-panel \.sqr-refresh\s*\{\s*align-items:\s*center;([\s\S]*?)\}/)?.[0] ?? '';
+  assert.match(refreshRule, /align-items:\s*center/);
+  assert.match(refreshRule, /display:\s*flex/);
+  assert.match(refreshRule, /justify-content:\s*center/);
+});
+
 test('drag scheduler keeps only the newest pending point until the frame runs', () => {
   const frames = [];
   const scheduler = createDragScheduler(callback => frames.push(callback));
