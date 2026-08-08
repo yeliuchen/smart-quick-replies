@@ -221,7 +221,8 @@ test('loading panel stays compact instead of inheriting the full candidate width
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   const loadingRule = css.match(/#sqr-panel\.sqr-loading\s*\{([^}]*)\}/)?.[1] ?? '';
 
-  assert.match(loadingRule, /width:\s*min\(28rem,\s*calc\(100vw\s*-\s*16px\)\)/);
+  assert.match(loadingRule, /width:\s*min\(448px,\s*calc\(100vw\s*-\s*16px\)\)/);
+  assert.doesNotMatch(loadingRule, /\b(?:rem|em)\b/);
 });
 
 test('fallback button background consumes user color without tinting ready glass', () => {

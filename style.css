@@ -401,7 +401,7 @@
 }
 
 #sqr-panel.sqr-loading {
-  width: min(28rem, calc(100vw - 16px));
+  width: min(448px, calc(100vw - 16px));
 }
 
 #sqr-panel .sqr-glass-scene {
