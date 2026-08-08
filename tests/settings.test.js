@@ -201,6 +201,15 @@ test('suggestion buttons use multiline clamping instead of single-line ellipsis'
   assert.doesNotMatch(textRule, /text-overflow:\s*ellipsis/);
 });
 
+test('candidate text uses the theme accent and stays inside stretched buttons', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  const panelRule = css.match(/#sqr-panel\s*\{([^}]*)\}/)?.[1] ?? '';
+  const textRule = css.match(/#sqr-panel \.sqr-candidate-text\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  assert.match(panelRule, /--sqr-button-text:\s*var\(--SmartThemeQuoteColor,\s*#75b7ff\)/);
+  assert.match(textRule, /align-self:\s*center/);
+});
+
 test('fallback button background consumes user color without tinting ready glass', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   const panelRule = css.match(/#sqr-panel\s*\{([^}]*)\}/)?.[1] ?? '';
