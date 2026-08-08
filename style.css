@@ -382,6 +382,7 @@
   border: 0;
   border-radius: var(--sqr-liquidglass-radius, 30px);
   box-shadow: none;
+  box-sizing: border-box;
   color: var(--sqr-panel-text);
   display: flex;
   gap: 0.45rem;
@@ -390,6 +391,7 @@
   opacity: var(--sqr-panel-opacity);
   padding: 0.45rem;
   position: fixed;
+  width: min(900px, calc(100vw - 16px));
   z-index: 10050;
 }
 
@@ -477,6 +479,7 @@
   line-height: 1.35;
   min-width: 0;
   text-align: left;
+  width: 100%;
 }
 
 #sqr-panel .sqr-candidate-line {
@@ -484,6 +487,7 @@
   line-height: inherit;
   min-height: 1.35em;
   white-space: pre;
+  writing-mode: horizontal-tb;
 }
 
 #sqr-panel .sqr-candidate[hidden] {

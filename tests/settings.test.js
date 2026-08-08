@@ -207,6 +207,16 @@ test('candidate text uses the theme accent and stays inside stretched buttons', 
   assert.match(textRule, /align-self:\s*center/);
 });
 
+test('reply panel keeps a stable horizontal width for candidate layout', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  const panelRule = css.match(/#sqr-panel\s*\{([^}]*)\}/)?.[1] ?? '';
+  const textRule = css.match(/#sqr-panel \.sqr-candidate-text\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  assert.match(panelRule, /box-sizing:\s*border-box/);
+  assert.match(panelRule, /width:\s*min\(900px,\s*calc\(100vw\s*-\s*16px\)\)/);
+  assert.match(textRule, /width:\s*100%/);
+});
+
 test('fallback button background consumes user color without tinting ready glass', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   const panelRule = css.match(/#sqr-panel\s*\{([^}]*)\}/)?.[1] ?? '';
