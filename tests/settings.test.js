@@ -217,6 +217,13 @@ test('reply panel keeps a stable horizontal width for candidate layout', () => {
   assert.match(textRule, /width:\s*100%/);
 });
 
+test('loading panel stays compact instead of inheriting the full candidate width', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  const loadingRule = css.match(/#sqr-panel\.sqr-loading\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  assert.match(loadingRule, /width:\s*min\(28rem,\s*calc\(100vw\s*-\s*16px\)\)/);
+});
+
 test('fallback button background consumes user color without tinting ready glass', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   const panelRule = css.match(/#sqr-panel\s*\{([^}]*)\}/)?.[1] ?? '';

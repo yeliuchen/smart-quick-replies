@@ -400,6 +400,10 @@
   border-color: transparent;
 }
 
+#sqr-panel.sqr-loading {
+  width: min(28rem, calc(100vw - 16px));
+}
+
 #sqr-panel .sqr-glass-scene {
   background: var(--SmartThemeBlurTintColor, rgba(48, 52, 68, 0.5));
   border-radius: inherit;
