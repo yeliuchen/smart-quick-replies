@@ -14,6 +14,12 @@ test('SillyTavern install files are available at the repository root', () => {
   assert.equal(manifest.css, 'style.css');
 });
 
+test('browser autostart guards the asynchronous initialization window', () => {
+  const source = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+  assert.match(source, /__smartQuickRepliesInitPromise/);
+  assert.match(source, /__smartQuickRepliesCleanup\s*\|\|\s*runtimeWindow\.__smartQuickRepliesInitPromise/);
+});
+
 test('LiquidGlass uses one isolated panel root instead of the document body', () => {
   const source = fs.readFileSync(new URL('index.js', root), 'utf8');
   assert.equal((source.match(/LiquidGlass\.init\(/g) ?? []).length, 1);
@@ -97,7 +103,7 @@ test('visible panel retries after a stale async LiquidGlass init without a false
   };
   const controller = extension.createReplyPanelLiquidGlassController(panel, {
     window: windowImpl,
-    init: () => new Promise(resolve => initResolvers.push(resolve)),
+    init: () => new Promise(resolve => { initResolvers.push(resolve); }),
   });
 
   controller.ensure();
@@ -111,7 +117,7 @@ test('visible panel retries after a stale async LiquidGlass init without a false
 
   const staleInstance = { destroyCalls: 0, destroy() { this.destroyCalls += 1; } };
   initResolvers.shift()(staleInstance);
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => { setImmediate(resolve); });
 
   assert.equal(staleInstance.destroyCalls, 1);
   assert.equal(classes.has('sqr-liquidglass-ready'), false);
@@ -120,7 +126,7 @@ test('visible panel retries after a stale async LiquidGlass init without a false
   scheduled.shift()();
   const currentInstance = { destroyCalls: 0, destroy() { this.destroyCalls += 1; } };
   initResolvers.shift()(currentInstance);
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => { setImmediate(resolve); });
 
   assert.equal(classes.has('sqr-liquidglass-ready'), true);
   controller.dispose();
@@ -144,7 +150,7 @@ test('visible panel retries when a stale LiquidGlass initialization rejects', as
       },
       cancelIdleCallback() {},
     },
-    init: () => new Promise((_resolve, reject) => initRejectors.push(reject)),
+    init: () => new Promise((_resolve, reject) => { initRejectors.push(reject); }),
   });
 
   controller.ensure();
@@ -155,7 +161,7 @@ test('visible panel retries when a stale LiquidGlass initialization rejects', as
   controller.ensure();
 
   initRejectors.shift()(new Error('stale initialization failed'));
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => { setImmediate(resolve); });
 
   assert.equal(scheduled.length, 1);
   controller.dispose();
@@ -191,7 +197,7 @@ test('permanent LiquidGlass teardown suppresses retries after a pending init set
 
   const staleInstance = { destroyCalls: 0, destroy() { this.destroyCalls += 1; } };
   resolveInit(staleInstance);
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => { setImmediate(resolve); });
 
   assert.equal(staleInstance.destroyCalls, 1);
   assert.equal(classes.has('sqr-liquidglass-ready'), false);

@@ -27,6 +27,39 @@ test('candidate parser removes code fences and rejects duplicates or wrong count
   assert.throws(() => parseCandidateArray('["a","b"]'), /four distinct/);
 });
 
+test('endpoint normalization preserves query strings without appending paths after them', () => {
+  assert.equal(
+    normalizeEndpoint('https://gateway.example/v1/chat/completions?route=fast', 'openai'),
+    'https://gateway.example/v1/chat/completions?route=fast',
+  );
+  assert.equal(
+    normalizeEndpoint('https://gateway.example/v1?route=fast', 'openai'),
+    'https://gateway.example/v1/chat/completions?route=fast',
+  );
+  assert.equal(
+    normalizeEndpoint('https://generativelanguage.googleapis.com/v1beta/models/gemini:generateContent?alt=json', 'google', 'completion', 'gemini'),
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini:generateContent?alt=json',
+  );
+  assert.equal(
+    normalizeEndpoint('https://gateway.example/v1/messages', 'anthropic', 'models'),
+    'https://gateway.example/v1/models',
+  );
+});
+
+test('candidate recovery never truncates a five-item response to four replies', () => {
+  assert.throws(
+    () => parseCandidateArray('["a","b","c","d","e"]'),
+    /four distinct non-empty replies/i,
+  );
+});
+
+test('candidate parsing skips an earlier non-JSON bracketed aside', () => {
+  assert.deepEqual(
+    parseCandidateArray('Reasoning [not JSON]\nFinal: ["a","b","c","d"]'),
+    ['a', 'b', 'c', 'd'],
+  );
+});
+
 test('candidate parser explains when the provider did not return four usable replies', () => {
   assert.throws(() => parseCandidateResults('The model returned a normal paragraph instead of JSON.'), error => /JSON array|format/i.test(error.message));
 });

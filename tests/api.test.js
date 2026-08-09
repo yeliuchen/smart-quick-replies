@@ -55,13 +55,28 @@ test('Google Gemini requests use native contents and x-goog-api-key authenticati
   assert.deepEqual(body.generationConfig, { temperature: 0.7, topP: 0.9, maxOutputTokens: 256 });
 });
 
-test('Anthropic request uses top-level system and x-api-key', () => {
-  const request = buildCompletionRequest({ type: 'anthropic', url: 'https://gateway.example/v1', key: 'secret', model: 'claude', temperature: 0.9, maxTokens: 80, topP: 0.95 }, { system: 'system', messages: [{ role: 'user', content: 'hi' }] });
+test('Anthropic request uses top-level system, generation instruction, and x-api-key', () => {
+  const request = buildCompletionRequest({ type: 'anthropic', url: 'https://gateway.example/v1', key: 'secret', model: 'claude', temperature: 0.9, maxTokens: 80, topP: 0.95 }, { system: 'system', messages: [{ role: 'user', content: 'hi' }], generationInstruction: 'Generate now.' });
   assert.equal(request.url, 'https://gateway.example/v1/messages');
   assert.equal(request.init.headers['x-api-key'], 'secret');
   const body = JSON.parse(request.init.body);
   assert.equal(body.system, 'system');
-  assert.deepEqual(body.messages, [{ role: 'user', content: 'hi' }]);
+  assert.deepEqual(body.messages, [{ role: 'user', content: 'hi' }, { role: 'user', content: 'Generate now.' }]);
+});
+
+test('provider-specific native APIs do not enter the OpenAI SSE parser path', () => {
+  assert.equal(shouldUseStreaming({ type: 'anthropic', model: 'streaming-claude' }), false);
+  assert.equal(shouldUseStreaming({ type: 'google', stream: true, model: 'gemini' }), false);
+  assert.equal(shouldUseStreaming({ type: 'openai', stream: true, model: 'gateway-model' }), true);
+});
+
+test('Anthropic requests remain valid when there is no conversation history', () => {
+  const request = buildCompletionRequest(
+    { type: 'anthropic', url: 'https://gateway.example/v1', model: 'claude' },
+    { system: 'system', messages: [], generationInstruction: 'Generate now.' },
+  );
+
+  assert.deepEqual(JSON.parse(request.init.body).messages, [{ role: 'user', content: 'Generate now.' }]);
 });
 
 test('response and model list parsers support common provider shapes', () => {
@@ -98,6 +113,17 @@ test('provider payload debug summary exposes content and reasoning diagnostics w
   assert.doesNotMatch(JSON.stringify(summary), /secret|authorization/i);
 });
 
+test('Anthropic debug summaries measure native content blocks', () => {
+  const summary = summarizeProviderPayload({
+    content: [{ type: 'text', text: '["a","b","c","d"]' }],
+    usage: { output_tokens: 12 },
+  }, 'anthropic');
+
+  assert.equal(summary.standardContentLength, 17);
+  assert.equal(summary.standardContentPreview, '["a","b","c","d"]');
+  assert.equal(summary.usage.output_tokens, 12);
+});
+
 test('Google response and model list parsers support native Gemini shapes', () => {
   assert.equal(parseProviderResponse({ candidates: [{ content: { parts: [{ text: '["a","b","c","d"]' }] } }] }, 'google'), '["a","b","c","d"]');
   assert.deepEqual(parseModelList({ models: [{ name: 'models/gemini-2.5-flash' }, { name: 'models/gemini-2.0-flash' }] }, 'google'), ['gemini-2.0-flash', 'gemini-2.5-flash']);
@@ -119,6 +145,16 @@ test('HTTP errors retain status and provide an actionable unauthorized message',
 test('LM Studio model discovery includes the API v1 fallback', () => {
   const request = buildModelsRequest({ type: 'lmstudio', url: 'http://localhost:1234', key: '' });
   assert.deepEqual(request.fallbackUrls, ['http://localhost:1234/api/v1/models']);
+});
+
+test('model discovery always requests JSON even when the selected model uses streaming', () => {
+  const request = buildModelsRequest({
+    type: 'openai',
+    url: 'https://gateway.example/v1',
+    model: 'fake-stream-model',
+  });
+  assert.equal(request.init.headers.Accept, 'application/json');
+  assert.equal(request.init.headers['Content-Type'], undefined);
 });
 
 test('Google model discovery uses the native models endpoint', async () => {
@@ -262,6 +298,74 @@ test('fake-stream models request streaming and aggregate SSE content', async () 
     },
   });
   assert.match(text, /"reply":"d"/);
+});
+
+test('model discovery rejects an already-cancelled request before fetching', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let fetched = false;
+
+  await assert.rejects(
+    requestModels({ type: 'openai', url: 'https://gateway.example/v1' }, {
+      signal: controller.signal,
+      fetch: async () => {
+        fetched = true;
+        return { ok: true, json: async () => ({ data: [] }) };
+      },
+    }),
+    error => error.name === 'AbortError',
+  );
+  assert.equal(fetched, false);
+});
+
+test('model discovery applies the configured request timeout', async () => {
+  let fireTimeout;
+  let cleared = false;
+  const pending = requestModels({
+    type: 'openai',
+    url: 'https://gateway.example/v1',
+    timeoutMs: 25,
+  }, {
+    setTimeout(callback) {
+      fireTimeout = callback;
+      return 7;
+    },
+    clearTimeout(id) {
+      assert.equal(id, 7);
+      cleared = true;
+    },
+    fetch: async (_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => {
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        reject(error);
+      }, { once: true });
+    }),
+  });
+
+  await Promise.resolve();
+  assert.equal(typeof fireTimeout, 'function');
+  fireTimeout();
+  await assert.rejects(pending, error => error.name === 'AbortError' && /timed out/i.test(error.message));
+  assert.equal(cleared, true);
+});
+
+test('stream-enabled gateways may fall back to a normal JSON response', async () => {
+  const text = await requestCompletion(
+    { type: 'openai', url: 'https://gateway.example/v1', model: 'fake-stream-model' },
+    { messages: [] },
+    {
+      fetch: async () => ({
+        ok: true,
+        status: 200,
+        headers: { get: name => name.toLowerCase() === 'content-type' ? 'application/json; charset=utf-8' : null },
+        body: { getReader: () => ({ read: async () => ({ done: true }) }) },
+        json: async () => ({ choices: [{ message: { content: '["a","b","c","d"]' } }] }),
+      }),
+    },
+  );
+
+  assert.equal(text, '["a","b","c","d"]');
 });
 
 test('streaming retries a truncated response beyond the 1024-token floor', async () => {

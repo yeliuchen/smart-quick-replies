@@ -144,3 +144,28 @@ test('candidate rendering materializes rounded-boundary lines without losing the
   assert.match(lineElements[0].style.marginInlineStart, /px$/);
   assert.match(lineElements.at(-1).style.marginInlineEnd, /px$/);
 });
+
+test('candidate relayout refreshes rounded margins even when line breaks are unchanged', () => {
+  const documentImpl = createFakeHtmlDocument();
+  const button = documentImpl.createElement('button');
+  const value = '这是一个需要稳定边距的候选回复';
+  const options = {
+    document: documentImpl,
+    width: 100,
+    radius: 24,
+    lineHeight: 20,
+    verticalPadding: 8,
+    safety: 4,
+    measure: text => [...String(text)].length * 10,
+  };
+  renderCandidateButton(button, value, documentImpl);
+  const first = layoutCandidateButtonText(button, options);
+  const lines = [...button.querySelector('.sqr-candidate-text').children];
+  assert.ok(first.lines.length > 1);
+  lines[0].style.marginInlineStart = '999px';
+
+  const second = layoutCandidateButtonText(button, options);
+
+  assert.deepEqual(second.lines, first.lines);
+  assert.equal(lines[0].style.marginInlineStart, `${second.lineInsets[0]}px`);
+});

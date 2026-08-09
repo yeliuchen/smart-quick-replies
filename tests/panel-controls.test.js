@@ -199,10 +199,50 @@ test('pointer dragging still updates position and notifies onMove', () => {
     clientY: 20,
     preventDefault() {},
   });
-  documentImpl.dispatchEvent({ type: 'pointermove', clientX: 18, clientY: 28 });
-  documentImpl.dispatchEvent({ type: 'pointerup' });
+  documentImpl.dispatchEvent({ type: 'pointermove', pointerId: 1, clientX: 18, clientY: 28 });
+  documentImpl.dispatchEvent({ type: 'pointerup', pointerId: 1 });
 
   assert.deepEqual(panel.getPosition(), { left: 48, top: 58 });
   assert.deepEqual(moves, [{ left: 48, top: 58 }]);
+  panel.destroy();
+});
+
+test('dragging ignores move and release events from unrelated pointers', () => {
+  const moves = [];
+  const documentImpl = createFakeDocument();
+  const panel = createPanel(documentImpl, {
+    onMove(position) {
+      moves.push({ ...position });
+    },
+  });
+  const handle = panel.element.querySelector('.sqr-drag-handle');
+  panel.setPosition({ left: 40, top: 50 });
+  handle.dispatchEvent({
+    type: 'pointerdown',
+    pointerId: 1,
+    clientX: 10,
+    clientY: 20,
+    preventDefault() {},
+  });
+
+  documentImpl.dispatchEvent({ type: 'pointermove', pointerId: 2, clientX: 100, clientY: 100 });
+  documentImpl.dispatchEvent({ type: 'pointerup', pointerId: 2 });
+  documentImpl.dispatchEvent({ type: 'pointermove', pointerId: 1, clientX: 18, clientY: 28 });
+  documentImpl.dispatchEvent({ type: 'pointerup', pointerId: 1 });
+
+  assert.deepEqual(panel.getPosition(), { left: 48, top: 58 });
+  assert.deepEqual(moves, [{ left: 48, top: 58 }]);
+  panel.destroy();
+});
+
+test('an error clears the panel candidate state together with hidden buttons', () => {
+  const panel = createPanel(createFakeDocument());
+  panel.setCandidates(['candidate']);
+  assert.equal(panel.hasCandidates(), true);
+
+  panel.setError('request failed');
+
+  assert.equal(panel.hasCandidates(), false);
+  assert.equal(panel.element.classList.contains('sqr-error-state'), true);
   panel.destroy();
 });
