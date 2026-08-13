@@ -29,6 +29,7 @@ import {
 } from '../index.js';
 
 test('default settings use automatic trigger, 20 messages, compression, and four candidates', () => {
+  assert.equal(DEFAULT_SETTINGS.version, 5);
   assert.equal(DEFAULT_SETTINGS.triggerMode, 'auto');
   assert.equal(DEFAULT_SETTINGS.historyLimit, 20);
   assert.equal(DEFAULT_SETTINGS.compression.enabled, true);
@@ -38,11 +39,17 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.equal(DEFAULT_SETTINGS.api.authMode, 'bearer');
   assert.match(DEFAULT_SYSTEM_PROMPT, /You generate reply suggestions for the USER/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /You are NOT \{\{char\}\}/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /what \{\{user\}\} could do and say next/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /exactly 4 distinct/);
-  assert.match(DEFAULT_SYSTEM_PROMPT, /The branch roles are priorities/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /Branch Diversity/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Advance/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Probe/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Negative/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Redirect/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Action Selection/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /\(brief action\).*brief dialogue/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /30 Chinese characters/);
-  assert.match(DEFAULT_SYSTEM_PROMPT, /never exceed 40 Chinese characters/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Escape dialogue quotation marks correctly/);
 });
 
 test('SillyTavern completion uses GENERATION_ENDED separately from manual stop', () => {
@@ -81,6 +88,7 @@ test('settings expose 2048 as the default max token value', () => {
 test('settings expose a 120 second default request timeout', () => {
   const html = fs.readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
   assert.match(html, /id="sqr-timeout"[^>]*max="180"[^>]*value="120"/);
+  assert.match(html, /id="sqr-timeout"[^>]*data-sqr-scale="1000"/);
   assert.equal(migrateSettings({ version: 4, api: { timeoutMs: 30000 } }).api.timeoutMs, 120000);
 });
 
@@ -220,9 +228,29 @@ test('reply panel keeps a stable horizontal width for candidate layout', () => {
 test('loading panel stays compact instead of inheriting the full candidate width', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   const loadingRule = css.match(/#sqr-panel\.sqr-loading\s*\{([^}]*)\}/)?.[1] ?? '';
+  const loadingStatusRule = css.match(/#sqr-panel\.sqr-loading \.sqr-panel-status\s*\{([^}]*)\}/)?.[1] ?? '';
 
-  assert.match(loadingRule, /width:\s*min\(448px,\s*calc\(100vw\s*-\s*16px\)\)/);
-  assert.doesNotMatch(loadingRule, /\b(?:rem|em)\b/);
+  assert.match(loadingRule, /width:\s*max-content/);
+  assert.match(loadingStatusRule, /flex:\s*0 0 auto/);
+  assert.match(loadingStatusRule, /min-width:\s*0/);
+});
+
+test('error-only panels stay compact instead of expanding to candidate width', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  const errorRule = css.match(/#sqr-panel\.sqr-error-state\s*\{([^}]*)\}/)?.[1] ?? '';
+  assert.match(errorRule, /width:\s*max-content/);
+});
+
+test('malformed nested settings fall back to their default object contracts', () => {
+  const merged = mergeSettings({
+    api: null,
+    compression: [],
+    appearance: 'invalid',
+  });
+
+  assert.equal(merged.api.type, DEFAULT_SETTINGS.api.type);
+  assert.equal(merged.compression.enabled, DEFAULT_SETTINGS.compression.enabled);
+  assert.equal(merged.appearance.opacity, DEFAULT_SETTINGS.appearance.opacity);
 });
 
 test('fallback button background consumes user color without tinting ready glass', () => {
@@ -354,6 +382,29 @@ test('clearing a Secrets API key removes a stale local fallback', async () => {
   assert.equal(values.has('smart-quick-replies.secret.apiKey.openai'), false);
 });
 
+test('successful Secrets writes remove stale local API key fallbacks', async () => {
+  const key = 'smart-quick-replies.secret.apiKey.openai';
+  const values = new Map([[key, 'stale-fallback']]);
+  const secrets = new Map();
+  const context = {
+    getSecret: name => secrets.get(name) ?? '',
+    setSecret: (name, value) => secrets.set(name, value),
+    storage: {
+      getItem: name => values.get(name) ?? null,
+      removeItem: name => values.delete(name),
+    },
+  };
+
+  assert.equal(await writeApiKey(context, 'openai', 'fresh-secret'), 'secrets');
+  assert.equal(secrets.get(key), 'fresh-secret');
+  assert.equal(values.has(key), false);
+});
+
+test('read-only and unrelated generic adapters are not reported as writable Secrets storage', () => {
+  assert.equal(getApiKeyStorageMode({ getSecret: () => 'read-only' }), 'localStorage');
+  assert.equal(getApiKeyStorageMode({ get: () => 'unrelated' }), 'localStorage');
+});
+
 test('settings bind API key input and blur persistence hooks', () => {
   const source = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8');
   assert.match(source, /keyInput\.addEventListener\('input'/);
@@ -397,6 +448,7 @@ test('automatic suggestion deduplication keys the latest character message', () 
   ];
   assert.equal(getLatestCharacterMessageKey(chat), '1:Hello');
   assert.equal(getLatestCharacterMessageKey([...chat, { is_user: true, mes: 'Next' }]), '');
+  assert.equal(getLatestCharacterMessageKey([...chat, { isSystem: true, mes: 'System notice' }]), '');
   assert.notEqual(getLatestCharacterMessageKey([...chat, { is_user: false, mes: 'Hello again' }]), getLatestCharacterMessageKey(chat));
 });
 

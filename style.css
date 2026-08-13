@@ -28,14 +28,6 @@
   content: '';
 }
 
-.sqr-section-toggle {
-  align-items: center;
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  width: 100%;
-}
-
 .sqr-section-toggle:hover,
 .sqr-section-toggle:focus-visible {
   background: color-mix(in srgb, var(--SmartThemeQuoteColor, #8ab4f8) 22%, transparent);
@@ -183,6 +175,12 @@
   width: 100%;
 }
 
+.sqr-range-label {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+}
+
 .sqr-range-field output,
 .sqr-position-row output {
   color: var(--sqr-muted);
@@ -319,6 +317,18 @@
   background: linear-gradient(135deg, var(--SmartThemeQuoteColor, #4f8cff) 50%, var(--SmartThemeBodyColor, #fff) 50%);
 }
 
+[data-sqr-color-value='#4f8cff'] .sqr-color-swatch { --sqr-swatch-color: #4f8cff; }
+[data-sqr-color-value='#5dd6d0'] .sqr-color-swatch { --sqr-swatch-color: #5dd6d0; }
+[data-sqr-color-value='#9b7cff'] .sqr-color-swatch { --sqr-swatch-color: #9b7cff; }
+[data-sqr-color-value='#57c785'] .sqr-color-swatch { --sqr-swatch-color: #57c785; }
+[data-sqr-color-value='#f0a45d'] .sqr-color-swatch { --sqr-swatch-color: #f0a45d; }
+[data-sqr-color-value='#858995'] .sqr-color-swatch { --sqr-swatch-color: #858995; }
+[data-sqr-color-value='#ffffff'] .sqr-color-swatch { --sqr-swatch-color: #ffffff; }
+[data-sqr-color-value='#d8e9ff'] .sqr-color-swatch { --sqr-swatch-color: #d8e9ff; }
+[data-sqr-color-value='#20232a'] .sqr-color-swatch { --sqr-swatch-color: #20232a; }
+[data-sqr-color-value='#111827'] .sqr-color-swatch { --sqr-swatch-color: #111827; }
+[data-sqr-color-value='#ffe9a8'] .sqr-color-swatch { --sqr-swatch-color: #ffe9a8; }
+
 .sqr-color-picker-menu {
   background: #3a3a3f;
   border: 1px solid var(--sqr-input-border);
@@ -401,7 +411,11 @@
 }
 
 #sqr-panel.sqr-loading {
-  width: min(448px, calc(100vw - 16px));
+  width: max-content;
+}
+
+#sqr-panel.sqr-error-state {
+  width: max-content;
 }
 
 #sqr-panel .sqr-glass-scene {
@@ -509,6 +523,8 @@
 }
 
 #sqr-panel.sqr-loading .sqr-panel-status {
+  flex: 0 0 auto;
+  min-width: 0;
   text-align: center;
 }
 
