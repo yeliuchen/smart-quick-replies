@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import {
   DEFAULT_SETTINGS,
   DEFAULT_SYSTEM_PROMPT,
+  DEFAULT_SYSTEM_PROMPT_V1,
+  DEFAULT_SYSTEM_PROMPT_V2,
   mergeSettings,
   migrateSettings,
   clampPosition,
@@ -37,7 +39,8 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.match(DEFAULT_SYSTEM_PROMPT, /You generate reply suggestions for the USER/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /You are NOT \{\{char\}\}/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /exactly 4 distinct/);
-  assert.match(DEFAULT_SYSTEM_PROMPT, /user style examples/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /The branch roles are priorities/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Branch Diversity/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /30 Chinese characters/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /never exceed 40 Chinese characters/);
 });
@@ -88,12 +91,11 @@ test('migrateSettings upgrades the original default prompt to user-perspective r
   assert.match(migrated.systemPrompt, /You are NOT \{\{char\}\}/);
 });
 
-test('migrateSettings upgrades older default prompts with the short-reply limit', () => {
-  const migrated = migrateSettings({
-    version: 3,
-    systemPrompt: DEFAULT_SYSTEM_PROMPT.replace(/- Keep every reply very short:[\s\S]*?\n/, ''),
-  });
-  assert.match(migrated.systemPrompt, /30 Chinese characters/);
+test('migrateSettings upgrades every previous default prompt to the newest rules', () => {
+  for (const previous of [DEFAULT_SYSTEM_PROMPT_V1, DEFAULT_SYSTEM_PROMPT_V2]) {
+    const migrated = migrateSettings({ version: 4, systemPrompt: previous });
+    assert.equal(migrated.systemPrompt, DEFAULT_SYSTEM_PROMPT);
+  }
 });
 
 test('panel position clamps to the viewport with a margin', () => {
@@ -182,7 +184,7 @@ test('settings CSS gives form controls theme-aware colors', () => {
   assert.match(css, /\.sqr-settings-section:not\(\[open\]\)\s*>\s*\.sqr-section-toggle[\s\S]*margin-bottom:\s*0/);
 });
 
-test('suggestion buttons use multiline clamping instead of single-line ellipsis', () => {
+test('suggestion buttons use rounded-boundary multiline layout instead of truncation', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   const candidateRule = css.match(/#sqr-panel \.sqr-candidate\s*\{([^}]*)\}/)?.[1] ?? '';
   const textRule = css.match(/#sqr-panel \.sqr-candidate-text\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -190,13 +192,37 @@ test('suggestion buttons use multiline clamping instead of single-line ellipsis'
   assert.match(candidateRule, /display:\s*flex/);
   assert.doesNotMatch(candidateRule, /-webkit-box|-webkit-line-clamp|white-space|overflow-wrap/);
   assert.match(candidateRule, /min-height:\s*0/);
-  assert.match(textRule, /display:\s*-webkit-box/);
-  assert.match(textRule, /-webkit-box-orient:\s*vertical/);
-  assert.match(textRule, /-webkit-line-clamp:\s*3/);
-  assert.match(textRule, /overflow:\s*hidden/);
-  assert.match(textRule, /overflow-wrap:\s*anywhere/);
-  assert.match(textRule, /white-space:\s*normal/);
-  assert.doesNotMatch(textRule, /text-overflow:\s*ellipsis/);
+  assert.match(textRule, /display:\s*flex/);
+  assert.match(textRule, /flex-direction:\s*column/);
+  assert.match(css, /#sqr-panel \.sqr-candidate-line\s*\{[\s\S]*display:\s*block/);
+  assert.doesNotMatch(textRule, /-webkit-line-clamp|text-overflow/);
+});
+
+test('candidate text uses the theme accent and stays inside stretched buttons', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  const panelRule = css.match(/#sqr-panel\s*\{([^}]*)\}/)?.[1] ?? '';
+  const textRule = css.match(/#sqr-panel \.sqr-candidate-text\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  assert.match(panelRule, /--sqr-button-text:\s*var\(--SmartThemeQuoteColor,\s*#75b7ff\)/);
+  assert.match(textRule, /align-self:\s*center/);
+});
+
+test('reply panel keeps a stable horizontal width for candidate layout', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  const panelRule = css.match(/#sqr-panel\s*\{([^}]*)\}/)?.[1] ?? '';
+  const textRule = css.match(/#sqr-panel \.sqr-candidate-text\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  assert.match(panelRule, /box-sizing:\s*border-box/);
+  assert.match(panelRule, /width:\s*min\(900px,\s*calc\(100vw\s*-\s*16px\)\)/);
+  assert.match(textRule, /width:\s*100%/);
+});
+
+test('loading panel stays compact instead of inheriting the full candidate width', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  const loadingRule = css.match(/#sqr-panel\.sqr-loading\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  assert.match(loadingRule, /width:\s*min\(448px,\s*calc\(100vw\s*-\s*16px\)\)/);
+  assert.doesNotMatch(loadingRule, /\b(?:rem|em)\b/);
 });
 
 test('fallback button background consumes user color without tinting ready glass', () => {
@@ -215,6 +241,14 @@ test('loading state hides empty candidates and centers its status', () => {
   const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
   assert.match(css, /#sqr-panel \.sqr-candidate\[hidden\]\s*\{[\s\S]*display:\s*none/);
   assert.match(css, /#sqr-panel \.sqr-panel-status\s*\{[\s\S]*text-align:\s*center/);
+});
+
+test('refresh button centers its icon in both axes', () => {
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  const refreshRule = css.match(/#sqr-panel \.sqr-refresh\s*\{\s*align-items:\s*center;([\s\S]*?)\}/)?.[0] ?? '';
+  assert.match(refreshRule, /align-items:\s*center/);
+  assert.match(refreshRule, /display:\s*flex/);
+  assert.match(refreshRule, /justify-content:\s*center/);
 });
 
 test('drag scheduler keeps only the newest pending point until the frame runs', () => {
