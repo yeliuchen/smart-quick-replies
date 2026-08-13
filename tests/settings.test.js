@@ -39,11 +39,17 @@ test('default settings use automatic trigger, 20 messages, compression, and four
   assert.equal(DEFAULT_SETTINGS.api.authMode, 'bearer');
   assert.match(DEFAULT_SYSTEM_PROMPT, /You generate reply suggestions for the USER/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /You are NOT \{\{char\}\}/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /what \{\{user\}\} could do and say next/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /exactly 4 distinct/);
-  assert.match(DEFAULT_SYSTEM_PROMPT, /The branch roles are priorities/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /Branch Diversity/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Advance/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Probe/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Negative/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Redirect/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Action Selection/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /\(brief action\).*brief dialogue/);
   assert.match(DEFAULT_SYSTEM_PROMPT, /30 Chinese characters/);
-  assert.match(DEFAULT_SYSTEM_PROMPT, /never exceed 40 Chinese characters/);
+  assert.match(DEFAULT_SYSTEM_PROMPT, /Escape dialogue quotation marks correctly/);
 });
 
 test('SillyTavern completion uses GENERATION_ENDED separately from manual stop', () => {
